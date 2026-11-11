@@ -39,6 +39,115 @@ import {
       : str;
   }
 
+  function expandMacros(input: string): string {
+    const raw = String(input ?? '');
+    if (!raw.includes('{{')) return raw;
+    return raw
+      .replace(/\{\{\s*uuid\s*\}\}/gi, () =>
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+              const r = (Math.random() * 16) | 0;
+              const v = c === 'x' ? r : (r & 0x3) | 0x8;
+              return v.toString(16);
+            })
+      )
+      .replace(/\{\{\s*(timestamp|now)\s*\}\}/gi, () => String(Date.now()))
+      .replace(/\{\{\s*isoDate\s*\}\}/gi, () => new Date().toISOString())
+      .replace(/\{\{\s*randomInt\s*\}\}/gi, () =>
+        String(Math.floor(100000 + Math.random() * 900000))
+      )
+      .replace(/\{\{\s*randomHex\s*\}\}/gi, () =>
+        Math.floor(Math.random() * 0xffffffff)
+          .toString(16)
+          .padStart(8, '0')
+      );
+  }
+
+  function detectGraphql(
+    url: string,
+    queryParams: Record<string, string>,
+    reqBody: string | undefined
+  ): {
+    graphqlOp?: string;
+    graphqlType?: 'query' | 'mutation' | 'subscription';
+  } {
+    try {
+      const parseQueryText = (qText: string) => {
+        const m = qText.match(
+          /\b(query|mutation|subscription)\s+([A-Za-z_][A-Za-z0-9_]*)/
+        );
+        if (m) {
+          return {
+            graphqlType: m[1] as 'query' | 'mutation' | 'subscription',
+            graphqlOp: m[2],
+          };
+        }
+        const anon = qText.trim().match(/^(query|mutation|subscription)\b/);
+        if (anon) {
+          return {
+            graphqlType: anon[1] as 'query' | 'mutation' | 'subscription',
+            graphqlOp: 'anonymous',
+          };
+        }
+        return undefined;
+      };
+
+      if (typeof reqBody === 'string' && reqBody.trim().startsWith('{')) {
+        const parsed = JSON.parse(reqBody);
+        if (
+          parsed &&
+          typeof parsed === 'object' &&
+          (typeof parsed.query === 'string' ||
+            typeof parsed.operationName === 'string' ||
+            /graphql|gql/i.test(url))
+        ) {
+          const fromQuery =
+            typeof parsed.query === 'string'
+              ? parseQueryText(parsed.query)
+              : undefined;
+          const opName =
+            (typeof parsed.operationName === 'string' &&
+              parsed.operationName.trim()) ||
+            fromQuery?.graphqlOp;
+          if (opName) {
+            return {
+              graphqlOp: opName,
+              graphqlType: fromQuery?.graphqlType || 'query',
+            };
+          }
+        }
+      } else if (typeof reqBody === 'string' && reqBody.trim().startsWith('[')) {
+        const parsed = JSON.parse(reqBody);
+        if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]?.query) {
+          const ops = parsed
+            .map((item) => item?.operationName || parseQueryText(String(item?.query || ''))?.graphqlOp)
+            .filter(Boolean);
+          if (ops.length > 0) {
+            return {
+              graphqlOp: ops.slice(0, 2).join('+'),
+              graphqlType: 'query',
+            };
+          }
+        }
+      }
+
+      if (queryParams.operationName) {
+        return {
+          graphqlOp: String(queryParams.operationName),
+          graphqlType: 'query',
+        };
+      }
+      if (queryParams.query && /graphql|gql/i.test(url)) {
+        const fromQ = parseQueryText(String(queryParams.query));
+        if (fromQ) return fromQ;
+      }
+    } catch {
+      // ignore
+    }
+    return {};
+  }
+
   function tryDecodeJwt(val: unknown): Record<string, unknown> | undefined {
     if (typeof val !== 'string') return undefined;
     const clean = val.trim().replace(/^bearer\s+/i, '').trim();
@@ -455,7 +564,14 @@ import {
   }
 
   function emitLog(entry: {
-    type: 'TRAFFIC' | 'HEADER' | 'BODY_REQ' | 'BODY_RES' | 'TELEPRESENCE' | 'REDIRECT';
+    type:
+      | 'TRAFFIC'
+      | 'HEADER'
+      | 'BODY_REQ'
+      | 'BODY_RES'
+      | 'TELEPRESENCE'
+      | 'REDIRECT'
+      | 'BLOCKED';
     transport?: 'fetch' | 'xhr' | 'beacon';
     method: string;
     url: string;
@@ -508,6 +624,7 @@ import {
         reqHeaders,
         cookies
       );
+      const gql = detectGraphql(safeUrl, queryParams, safeReqBody);
       const contentType = getHeaderCaseInsensitive(reqHeaders, 'content-type');
       const responseContentType = getHeaderCaseInsensitive(
         resHeaders,
@@ -533,6 +650,8 @@ import {
             pathname,
             contentType,
             responseContentType,
+            graphqlOp: gql.graphqlOp,
+            graphqlType: gql.graphqlType,
             queryParams: Object.keys(queryParams).length ? queryParams : undefined,
             cookies: Object.keys(cookies).length ? cookies : undefined,
             outgoingFields: outgoingFields.length ? outgoingFields : undefined,
@@ -579,14 +698,39 @@ import {
     return safeUrl.toLowerCase().includes(cleanPattern.toLowerCase());
   }
 
-  function getMatchingBodyRules(url: string, method: string): BodyRule[] {
+  function getMatchingBlockRule(url: string): { name: string; filter: string } | null {
+    const profile = getActiveProfile();
+    if (!profile || !Array.isArray(profile.redirectCorsRules)) return null;
+    for (const r of profile.redirectCorsRules) {
+      const filter = String(r?.sourceUrlFilter ?? '').trim();
+      if (!r?.enabled || r.type !== 'block' || !filter || filter === '*') continue;
+      if (matchesUrl(url, filter)) {
+        return { name: r.name || filter, filter };
+      }
+    }
+    return null;
+  }
+
+  function getMatchingBodyRules(
+    url: string,
+    method: string,
+    reqBody?: string
+  ): BodyRule[] {
     const profile = getActiveProfile();
     if (!profile || !Array.isArray(profile.bodyRules)) return [];
     const upperMethod = String(method || 'GET').toUpperCase();
+    const { queryParams } = parseUrlParts(url);
+    const gql = detectGraphql(url, queryParams, reqBody);
     return profile.bodyRules.filter((rule) => {
       if (!rule?.enabled || !String(rule.urlPattern ?? '').trim()) return false;
       if (rule.method !== 'ALL' && rule.method !== upperMethod) return false;
-      return matchesUrl(url, rule.urlPattern, rule.isRegex);
+      if (!matchesUrl(url, rule.urlPattern, rule.isRegex)) return false;
+      const wantedOp = String(rule.graphqlOperation ?? '').trim();
+      if (wantedOp) {
+        if (!gql.graphqlOp) return false;
+        if (gql.graphqlOp.toLowerCase() !== wantedOp.toLowerCase()) return false;
+      }
+      return true;
     });
   }
 
@@ -600,10 +744,10 @@ import {
 
     const tp = profile.telepresence;
     if (tp && tp.enabled && matchesUrl(url, tp.targetDomainFilter)) {
-      const interceptId = String(tp.interceptId ?? '').trim();
-      const baggageHeader = String(tp.baggageHeader ?? '').trim();
+      const interceptId = expandMacros(String(tp.interceptId ?? '').trim());
+      const baggageHeader = expandMacros(String(tp.baggageHeader ?? '').trim());
       const customHeaderName = String(tp.customHeaderName ?? '').trim();
-      const customHeaderValue = String(tp.customHeaderValue ?? '').trim();
+      const customHeaderValue = expandMacros(String(tp.customHeaderValue ?? '').trim());
       if (interceptId) {
         result.push({
           name: 'x-telepresence-intercept-id',
@@ -655,7 +799,7 @@ import {
       if (matchesUrl(url, hRule.urlFilter)) {
         result.push({
           name: ruleName,
-          value: String(hRule.value ?? ''),
+          value: expandMacros(String(hRule.value ?? '')),
           op: hRule.operation,
           label: ruleName,
         });
@@ -664,14 +808,33 @@ import {
     return result;
   }
 
+  function setDeepPath(
+    target: Record<string, unknown>,
+    path: string,
+    val: unknown
+  ) {
+    const parts = path.replace(/\[(\d+)\]/g, '.$1').split('.').filter(Boolean);
+    if (parts.length === 0) return;
+    let cur: Record<string, unknown> = target;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const key = parts[i];
+      if (typeof cur[key] !== 'object' || cur[key] === null) {
+        cur[key] = {};
+      }
+      cur = cur[key] as Record<string, unknown>;
+    }
+    cur[parts[parts.length - 1]] = val;
+  }
+
   function transformBodyText(originalText: string, rule: BodyRule): string {
+    const expandedRuleContent = expandMacros(rule.bodyContent);
     if (rule.mode === 'replace_request' || rule.mode === 'replace_response') {
-      return rule.bodyContent;
+      return expandedRuleContent;
     }
     if (rule.mode === 'merge_request_json' || rule.mode === 'merge_response_json') {
       try {
         const baseObj = originalText ? JSON.parse(originalText) : {};
-        const patchObj = JSON.parse(rule.bodyContent);
+        const patchObj = JSON.parse(expandedRuleContent);
         if (
           typeof baseObj === 'object' &&
           baseObj !== null &&
@@ -679,7 +842,17 @@ import {
           typeof patchObj === 'object' &&
           patchObj !== null
         ) {
-          return JSON.stringify({ ...baseObj, ...patchObj });
+          const clone: Record<string, unknown> = {
+            ...(baseObj as Record<string, unknown>),
+          };
+          for (const [k, v] of Object.entries(patchObj as Record<string, unknown>)) {
+            if (k.includes('.') || k.includes('[')) {
+              setDeepPath(clone, k, v);
+            } else {
+              clone[k] = v;
+            }
+          }
+          return JSON.stringify(clone);
         }
       } catch {
         // ignore
@@ -838,7 +1011,26 @@ import {
       return res;
     }
 
-    const matchingBodyRules = getMatchingBodyRules(fullUrl, method);
+    const blockRule = getMatchingBlockRule(fullUrl);
+    if (blockRule) {
+      emitLog({
+        type: 'BLOCKED',
+        transport: 'fetch',
+        method,
+        url: fullUrl,
+        ruleName: blockRule.name,
+        details: 'Blocked by ReqForce',
+        status: 0,
+        durationMs: 0,
+        mutated: true,
+        requestHeaders: initHeaders,
+        requestBody: rawReqBody,
+        credentials: cred,
+      });
+      throw new TypeError(`Blocked by ReqForce (${blockRule.filter})`);
+    }
+
+    const matchingBodyRules = getMatchingBodyRules(fullUrl, method, rawReqBody);
     const reqRules = matchingBodyRules.filter(
       (r) => r.mode === 'replace_request' || r.mode === 'merge_request_json'
     );
@@ -930,6 +1122,7 @@ import {
         await sleep(fullReplaceRule.delayMs);
       }
       const status = safeResponseStatus(fullReplaceRule.statusCode, 200);
+      const mockedBody = expandMacros(fullReplaceRule.bodyContent);
       emitLog({
         type: 'BODY_RES',
         transport: 'fetch',
@@ -943,19 +1136,16 @@ import {
         requestHeaders: finalReqHeaders,
         requestBody: sentBodyText,
         originalRequestBody: rawReqBody,
-        responseBody: fullReplaceRule.bodyContent,
+        responseBody: mockedBody,
         credentials: cred,
       });
-      return new Response(
-        isNullBodyStatus(status) ? null : fullReplaceRule.bodyContent,
-        {
-          status,
-          headers: {
-            'Content-Type': fullReplaceRule.contentType || 'application/json',
-            'X-Manipulated-By': 'ReqForce',
-          },
-        }
-      );
+      return new Response(isNullBodyStatus(status) ? null : mockedBody, {
+        status,
+        headers: {
+          'Content-Type': fullReplaceRule.contentType || 'application/json',
+          'X-Manipulated-By': 'ReqForce',
+        },
+      });
     }
 
     const fetchTarget =
@@ -1207,7 +1397,31 @@ import {
         return super.send(body);
       }
 
-      const matchingBodyRules = getMatchingBodyRules(this._url, this._method);
+      const blockRule = getMatchingBlockRule(this._url);
+      if (blockRule) {
+        emitLog({
+          type: 'BLOCKED',
+          transport: 'xhr',
+          method: this._method,
+          url: this._url,
+          ruleName: blockRule.name,
+          details: 'Blocked by ReqForce',
+          status: 0,
+          durationMs: 0,
+          mutated: true,
+          requestHeaders: this._reqHeaders,
+          requestBody: rawBody,
+          credentials: credMode,
+        });
+        try {
+          this.abort();
+        } catch {
+          // ignore
+        }
+        return;
+      }
+
+      const matchingBodyRules = getMatchingBodyRules(this._url, this._method, rawBody);
       const matchingHeaders = getMatchingRequestHeaders(this._url);
       const shouldMutate = matchingHeaders.length > 0 || matchingBodyRules.length > 0;
 
@@ -1300,10 +1514,27 @@ import {
   if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
     const origBeacon = navigator.sendBeacon.bind(navigator);
     navigator.sendBeacon = function (url: string | URL, data?: BodyInit | null): boolean {
+      const fullUrl = resolveUrl(url);
+      const rawBody = extractInitBodyString(data);
+      const blockRule = getMatchingBlockRule(fullUrl);
+      if (blockRule) {
+        emitLog({
+          type: 'BLOCKED',
+          transport: 'beacon',
+          method: 'POST',
+          url: fullUrl,
+          ruleName: blockRule.name,
+          details: 'Blocked by ReqForce',
+          status: 0,
+          durationMs: 0,
+          mutated: true,
+          requestBody: rawBody,
+          credentials: 'include',
+        });
+        return false;
+      }
       const ok = origBeacon(url, data);
       if (trafficMonitorOn()) {
-        const fullUrl = resolveUrl(url);
-        const rawBody = extractInitBodyString(data);
         emitLog({
           type: 'TRAFFIC',
           transport: 'beacon',

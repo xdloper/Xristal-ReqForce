@@ -102,17 +102,32 @@ export type Messages = {
   inspectorTabOutgoing: string;
   inspectorTabResponse: string;
   inspectorTabHeadersRaw: string;
+  inspectorTabReplay: string;
   inspectorHowItGoes: string;
   inspectorOutgoingValues: string;
   inspectorNoOutgoingValues: string;
   inspectorDecodedJwt: string;
   inspectorMockThisResponse: string;
   inspectorOverrideRequestBody: string;
+  inspectorBlockEndpoint: string;
   inspectorCopyCurl: string;
+  inspectorCopyFetch: string;
+  inspectorCopyAxios: string;
+  inspectorCopyPython: string;
+  inspectorMutateField: string;
+  inspectorSendReplay: string;
+  inspectorSendingReplay: string;
+  inspectorReplayResult: string;
   inspectorOriginalVsMutated: string;
   inspectorShowRawJson: string;
   inspectorResponseFields: string;
   inspectorFilterChannelAll: string;
+  graphqlOpFilterLabel: string;
+  graphqlOpFilterPlaceholder: string;
+  macrosHint: string;
+  blockUrl: string;
+  defaultBlockRuleName: string;
+  tplReqIdMacro: string;
   tabScope: string;
   curlModalTitle: string;
   curlModalHint: string;
@@ -264,18 +279,33 @@ export const en: Messages = {
   inspectorCopyBody: 'Copy',
   inspectorTabOutgoing: 'Outgoing Values',
   inspectorTabResponse: 'Response',
-  inspectorTabHeadersRaw: 'Headers & cURL',
+  inspectorTabHeadersRaw: 'Headers & Code',
+  inspectorTabReplay: 'Replay',
   inspectorHowItGoes: 'How It Travels & Channels',
   inspectorOutgoingValues: 'Outgoing Values (Key → Value)',
   inspectorNoOutgoingValues: 'No query, body, or custom header parameters were sent in this request.',
   inspectorDecodedJwt: 'Decoded JWT Payload',
   inspectorMockThisResponse: 'Mock Response',
   inspectorOverrideRequestBody: 'Override Request',
-  inspectorCopyCurl: 'Copy cURL',
+  inspectorBlockEndpoint: 'Block',
+  inspectorCopyCurl: 'cURL',
+  inspectorCopyFetch: 'fetch()',
+  inspectorCopyAxios: 'axios',
+  inspectorCopyPython: 'Python',
+  inspectorMutateField: 'Override',
+  inspectorSendReplay: 'Send Replay',
+  inspectorSendingReplay: 'Sending...',
+  inspectorReplayResult: 'Live Replay Response',
   inspectorOriginalVsMutated: 'ReqForce Mutation (Original → Sent)',
   inspectorShowRawJson: 'Raw Payload',
   inspectorResponseFields: 'Response Fields (Key → Value)',
   inspectorFilterChannelAll: 'All',
+  graphqlOpFilterLabel: 'GraphQL Operation (Optional)',
+  graphqlOpFilterPlaceholder: 'e.g. GetUserProfile',
+  macrosHint: 'Macros:',
+  blockUrl: '+ Block URL',
+  defaultBlockRuleName: 'Block Endpoint',
+  tplReqIdMacro: 'Req ID ({{uuid}})',
   tabScope: 'Tab Scope',
   curlModalTitle: 'Import Rules from cURL',
   curlModalHint:
@@ -428,18 +458,33 @@ export const tr: Messages = {
   inspectorCopyBody: 'Kopyala',
   inspectorTabOutgoing: 'Giden Değerler',
   inspectorTabResponse: 'Dönen Yanıt',
-  inspectorTabHeadersRaw: 'Header & cURL',
+  inspectorTabHeadersRaw: 'Header & Kod',
+  inspectorTabReplay: 'Tekrar Gönder',
   inspectorHowItGoes: 'Nasıl Gidiyor & Kanal Özeti',
   inspectorOutgoingValues: 'Giden Değerlerin İçi (Anahtar → Değer)',
   inspectorNoOutgoingValues: 'Bu istekte query, body veya özel header verisi gönderilmedi.',
   inspectorDecodedJwt: 'Çözümlenen JWT İçeriği',
   inspectorMockThisResponse: 'Yanıtı Mockla',
-  inspectorOverrideRequestBody: 'Giden Body’yi Değiştir',
-  inspectorCopyCurl: 'cURL Kopyala',
+  inspectorOverrideRequestBody: 'Body Değiştir',
+  inspectorBlockEndpoint: 'Engelle',
+  inspectorCopyCurl: 'cURL',
+  inspectorCopyFetch: 'fetch()',
+  inspectorCopyAxios: 'axios',
+  inspectorCopyPython: 'Python',
+  inspectorMutateField: 'Değiştir',
+  inspectorSendReplay: 'Tekrar Gönder',
+  inspectorSendingReplay: 'Gönderiliyor...',
+  inspectorReplayResult: 'Canlı Tekrar Gönderim Yanıtı',
   inspectorOriginalVsMutated: 'ReqForce Değişimi (Orijinal → Gönderilen)',
   inspectorShowRawJson: 'Ham Payload',
   inspectorResponseFields: 'Dönen Yanıt Değerleri (Anahtar → Değer)',
   inspectorFilterChannelAll: 'Tümü',
+  graphqlOpFilterLabel: 'GraphQL Operation (İsteğe bağlı)',
+  graphqlOpFilterPlaceholder: 'örn. GetUserProfile',
+  macrosHint: 'Makrolar:',
+  blockUrl: '+ URL Engelle',
+  defaultBlockRuleName: 'Endpoint Engelle',
+  tplReqIdMacro: 'Req ID ({{uuid}})',
   tabScope: 'Sekme Kapsamı',
   curlModalTitle: 'cURL’den Kural İçe Aktar',
   curlModalHint:

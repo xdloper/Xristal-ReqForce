@@ -70,6 +70,7 @@ const HEADER_TEMPLATES: Array<{
 }> = [
   { labelKey: 'tplBearer', name: 'Authorization', value: 'Bearer ', target: 'request', op: 'set' },
   { labelKey: 'tplApiKey', name: 'X-API-Key', value: '', target: 'request', op: 'set' },
+  { labelKey: 'tplReqIdMacro', name: 'X-Request-ID', value: '{{uuid}}', target: 'request', op: 'set' },
   { labelKey: 'tplNoCache', name: 'Cache-Control', value: 'no-cache, no-store', target: 'request', op: 'set' },
   { labelKey: 'tplSpoofIp', name: 'X-Forwarded-For', value: '127.0.0.1', target: 'request', op: 'set' },
   { labelKey: 'tplTenantId', name: 'X-Tenant-ID', value: 'staging-tenant', target: 'request', op: 'set' },
@@ -125,11 +126,22 @@ export default function App() {
   const [logSearch, setLogSearch] = useState('');
   const [logFilter, setLogFilter] = useState<'all' | 'tokens' | 'mutated' | 'errors'>('all');
   const [inspectorSection, setInspectorSection] = useState<
-    'outgoing' | 'response' | 'headers'
+    'outgoing' | 'response' | 'headers' | 'replay'
   >('outgoing');
   const [outgoingChannelFilter, setOutgoingChannelFilter] = useState<
     'all' | 'body' | 'query' | 'header' | 'cookie'
   >('all');
+  const [replayMethod, setReplayMethod] = useState('GET');
+  const [replayUrl, setReplayUrl] = useState('');
+  const [replayHeadersText, setReplayHeadersText] = useState('{}');
+  const [replayBody, setReplayBody] = useState('');
+  const [replayLoading, setReplayLoading] = useState(false);
+  const [replayResponse, setReplayResponse] = useState<{
+    status: number;
+    durationMs: number;
+    body: string;
+    headers: Record<string, string>;
+  } | null>(null);
 
   const t = useMemo(() => getMessages(state.locale), [state.locale]);
   const resolvedLocale = useMemo(
@@ -424,8 +436,11 @@ export default function App() {
     }));
   };
 
-  // Redirect, CORS & Query Param Rules
-  const addRedirectCorsRule = (type: 'redirect' | 'cors_bypass' | 'query_param') => {
+  // Redirect, CORS, Query Param & Block Rules
+  const addRedirectCorsRule = (
+    type: 'redirect' | 'cors_bypass' | 'query_param' | 'block',
+    customFilter?: string
+  ) => {
     const newRule: RedirectCorsRule = {
       id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
       enabled: true,
@@ -434,10 +449,17 @@ export default function App() {
           ? t.defaultCorsBypassName
           : type === 'query_param'
           ? t.defaultQueryParamName
+          : type === 'block'
+          ? t.defaultBlockRuleName
           : t.defaultRedirectName,
       type,
       sourceUrlFilter:
-        type === 'redirect' ? '^https://api\\.example\\.com/(.*)' : activeDomainPattern,
+        customFilter ||
+        (type === 'redirect'
+          ? '^https://api\\.example\\.com/(.*)'
+          : type === 'block'
+          ? '/api/v1/analytics'
+          : activeDomainPattern),
       destinationUrl: type === 'redirect' ? 'http://localhost:8080/\\1' : '',
       queryKey: type === 'query_param' ? 'debug' : '',
       queryValue: type === 'query_param' ? '1' : '',
@@ -1071,6 +1093,11 @@ export default function App() {
                               <span className="text-[10px] font-mono-code px-1 rounded bg-rf-hover text-blue-300">
                                 {rule.method}
                               </span>
+                              {rule.graphqlOperation && (
+                                <span className="text-[9px] font-mono-code px-1 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                                  GQL:{rule.graphqlOperation}
+                                </span>
+                              )}
                               <span className="text-[10px] font-mono-code text-rf-5 truncate">
                                 {rule.urlPattern}
                               </span>
@@ -1152,7 +1179,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-12 gap-2.5">
+                    <div className="grid grid-cols-12 gap-2">
                       <div className="col-span-2">
                         <label className="block text-[10px] font-medium text-rf-4 mb-1">
                           {t.method}
@@ -1175,7 +1202,7 @@ export default function App() {
                         </select>
                       </div>
 
-                      <div className="col-span-6">
+                      <div className="col-span-4">
                         <label className="block text-[10px] font-medium text-rf-4 mb-1">
                           {t.urlPatternLabel}
                         </label>
@@ -1188,13 +1215,30 @@ export default function App() {
                             })
                           }
                           placeholder="/api/v1/features"
-                          className="w-full h-7 px-2.5 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-rf-1 focus:outline-none focus:border-blue-500"
+                          className="w-full h-7 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-rf-1 focus:outline-none focus:border-blue-500"
                         />
                       </div>
 
-                      <div className="col-span-2">
+                      <div className="col-span-3">
                         <label className="block text-[10px] font-medium text-rf-4 mb-1">
-                          {t.httpStatus}
+                          {t.graphqlOpFilterLabel}
+                        </label>
+                        <input
+                          type="text"
+                          value={selected.graphqlOperation || ''}
+                          onChange={(e) =>
+                            updateBodyRule(selected.id, {
+                              graphqlOperation: e.target.value,
+                            })
+                          }
+                          placeholder={t.graphqlOpFilterPlaceholder}
+                          className="w-full h-7 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-cyan-300 focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+
+                      <div className="col-span-1">
+                        <label className="block text-[10px] font-medium text-rf-4 mb-1">
+                          Status
                         </label>
                         <input
                           type="number"
@@ -1204,7 +1248,7 @@ export default function App() {
                               statusCode: Number(e.target.value) || 200,
                             })
                           }
-                          className="w-full h-7 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-emerald-300"
+                          className="w-full h-7 px-1 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-emerald-300 text-center"
                         />
                       </div>
 
@@ -1227,9 +1271,28 @@ export default function App() {
 
                     <div className="flex-1 flex flex-col">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] font-medium text-rf-4">
-                          {t.jsonPayload}
-                        </span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] font-medium text-rf-4 mr-1">
+                            {t.jsonPayload}
+                          </span>
+                          <span className="text-[9px] text-rf-5">{t.macrosHint}</span>
+                          {(['{{uuid}}', '{{timestamp}}', '{{isoDate}}', '{{randomInt}}'] as const).map(
+                            (macro) => (
+                              <button
+                                key={macro}
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(macro);
+                                  showToast(`Copied ${macro}`);
+                                }}
+                                title="Click to copy macro"
+                                className="px-1.5 py-0.2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border font-mono-code text-[9px] text-amber-300"
+                              >
+                                {macro}
+                              </button>
+                            )
+                          )}
+                        </div>
                         <button
                           onClick={() => {
                             try {
@@ -1295,6 +1358,12 @@ export default function App() {
                     {t.queryParam}
                   </button>
                   <button
+                    onClick={() => addRedirectCorsRule('block')}
+                    className="h-6 px-2 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[11px] font-medium"
+                  >
+                    {t.blockUrl}
+                  </button>
+                  <button
                     onClick={() => addRedirectCorsRule('redirect')}
                     className="h-6 px-2.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-medium"
                   >
@@ -1329,6 +1398,8 @@ export default function App() {
                               ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
                               : rule.type === 'query_param'
                               ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                              : rule.type === 'block'
+                              ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
                               : 'bg-blue-500/15 text-blue-300 border border-blue-500/30'
                           }`}
                         >
@@ -1336,13 +1407,17 @@ export default function App() {
                             ? 'CORS'
                             : rule.type === 'query_param'
                             ? 'QUERY'
+                            : rule.type === 'block'
+                            ? 'BLOCK'
                             : '307'}
                         </span>
                       </div>
 
                       <div
                         className={
-                          rule.type === 'cors_bypass' ? 'col-span-9' : 'col-span-4'
+                          rule.type === 'cors_bypass' || rule.type === 'block'
+                            ? 'col-span-9'
+                            : 'col-span-4'
                         }
                       >
                         <input
@@ -1727,6 +1802,74 @@ export default function App() {
               return parts.join(' \\\n');
             };
 
+            const buildFetchFromLog = (log: InterceptLogEntry): string => {
+              const opts: Record<string, unknown> = {
+                method: log.method,
+              };
+              if (log.requestHeaders && Object.keys(log.requestHeaders).length > 0) {
+                opts.headers = log.requestHeaders;
+              }
+              if (log.requestBody && log.method !== 'GET' && log.method !== 'HEAD') {
+                opts.body = log.requestBody;
+              }
+              if (log.credentials && log.credentials !== 'same-origin') {
+                opts.credentials = log.credentials;
+              }
+              return `const res = await fetch(${JSON.stringify(log.url)}, ${JSON.stringify(
+                opts,
+                null,
+                2
+              )});\nconst data = await res.json();`;
+            };
+
+            const buildAxiosFromLog = (log: InterceptLogEntry): string => {
+              let dataVal: unknown = log.requestBody;
+              if (log.requestBody) {
+                try {
+                  dataVal = JSON.parse(log.requestBody);
+                } catch {
+                  dataVal = log.requestBody;
+                }
+              }
+              const cfg: Record<string, unknown> = {
+                method: log.method.toLowerCase(),
+                url: log.url,
+              };
+              if (log.requestHeaders && Object.keys(log.requestHeaders).length > 0) {
+                cfg.headers = log.requestHeaders;
+              }
+              if (dataVal !== undefined && log.method !== 'GET' && log.method !== 'HEAD') {
+                cfg.data = dataVal;
+              }
+              return `import axios from 'axios';\n\nconst { data } = await axios(${JSON.stringify(
+                cfg,
+                null,
+                2
+              )});`;
+            };
+
+            const buildPythonFromLog = (log: InterceptLogEntry): string => {
+              const lines: string[] = ['import requests', '', `url = ${JSON.stringify(log.url)}`];
+              if (log.requestHeaders && Object.keys(log.requestHeaders).length > 0) {
+                lines.push(`headers = ${JSON.stringify(log.requestHeaders, null, 2)}`);
+              }
+              if (log.requestBody && log.method !== 'GET' && log.method !== 'HEAD') {
+                lines.push(`payload = ${JSON.stringify(log.requestBody)}`);
+              }
+              const args = ['url'];
+              if (log.requestHeaders && Object.keys(log.requestHeaders).length > 0) {
+                args.push('headers=headers');
+              }
+              if (log.requestBody && log.method !== 'GET' && log.method !== 'HEAD') {
+                args.push('data=payload');
+              }
+              lines.push(
+                `response = requests.${log.method.toLowerCase()}(${args.join(', ')})`,
+                'print(response.status_code, response.text)'
+              );
+              return lines.join('\n');
+            };
+
             const createBodyRuleFromLog = (
               log: InterceptLogEntry,
               mode: BodyRuleMode
@@ -1745,8 +1888,11 @@ export default function App() {
               const newRule: BodyRule = {
                 id: `b-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
                 enabled: true,
-                name: `${log.method} ${log.pathname || shortUrl(log.url)}`,
+                name: log.graphqlOp
+                  ? `GQL ${log.graphqlOp}`
+                  : `${log.method} ${log.pathname || shortUrl(log.url)}`,
                 urlPattern: pattern,
+                graphqlOperation: log.graphqlOp,
                 isRegex: false,
                 method: validMethod,
                 mode,
@@ -1762,6 +1908,136 @@ export default function App() {
               setSelectedBodyId(newRule.id);
               setActiveTab('body');
               showToast(`+ ${newRule.name}`);
+            };
+
+            const mutateOutgoingField = (
+              log: InterceptLogEntry,
+              f: OutgoingField
+            ) => {
+              if (f.channel === 'header') {
+                addHeaderRule(f.key, f.value, 'request', 'set');
+                setActiveTab('headers');
+                showToast(`+ Header: ${f.key}`);
+                return;
+              }
+              if (f.channel === 'query') {
+                const newRule: RedirectCorsRule = {
+                  id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+                  enabled: true,
+                  name: `Query ${f.key}`,
+                  type: 'query_param',
+                  sourceUrlFilter: log.pathname || log.url,
+                  queryKey: f.key,
+                  queryValue: f.value,
+                };
+                updateActiveProfile((prof) => ({
+                  ...prof,
+                  redirectCorsRules: [newRule, ...prof.redirectCorsRules],
+                }));
+                setActiveTab('routing');
+                showToast(`+ Query: ${f.key}`);
+                return;
+              }
+              if (f.channel === 'body') {
+                let typedVal: unknown = f.value;
+                if (f.valueType === 'number') typedVal = Number(f.value);
+                else if (f.valueType === 'boolean') typedVal = f.value === 'true';
+                else if (f.valueType === 'null') typedVal = null;
+                else if (f.valueType === 'array' || f.valueType === 'object') {
+                  try {
+                    typedVal = JSON.parse(f.value);
+                  } catch {
+                    typedVal = f.value;
+                  }
+                }
+                const patchPayload = JSON.stringify({ [f.key]: typedVal }, null, 2);
+                const validMethod = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(
+                  log.method
+                )
+                  ? (log.method as BodyRule['method'])
+                  : 'ALL';
+                const newRule: BodyRule = {
+                  id: `b-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+                  enabled: true,
+                  name: `Override ${f.key}`,
+                  urlPattern: log.pathname || log.url,
+                  graphqlOperation: log.graphqlOp,
+                  isRegex: false,
+                  method: validMethod,
+                  mode: 'merge_request_json',
+                  statusCode: 200,
+                  delayMs: 0,
+                  contentType: 'application/json',
+                  bodyContent: patchPayload,
+                };
+                updateActiveProfile((prof) => ({
+                  ...prof,
+                  bodyRules: [newRule, ...prof.bodyRules],
+                }));
+                setSelectedBodyId(newRule.id);
+                setActiveTab('body');
+                showToast(`+ Override ${f.key}`);
+              }
+            };
+
+            const loadLogIntoReplay = (log: InterceptLogEntry) => {
+              setReplayMethod(log.method || 'GET');
+              setReplayUrl(log.url || '');
+              setReplayHeadersText(
+                JSON.stringify(log.requestHeaders || {}, null, 2)
+              );
+              setReplayBody(formatPretty(log.requestBody) || '');
+              setReplayResponse(null);
+              setInspectorSection('replay');
+            };
+
+            const executeReplay = async () => {
+              if (!replayUrl.trim()) return;
+              setReplayLoading(true);
+              const t0 = performance.now();
+              try {
+                let parsedHeaders: Record<string, string> = {};
+                if (replayHeadersText.trim()) {
+                  try {
+                    parsedHeaders = JSON.parse(replayHeadersText);
+                  } catch {
+                    // ignore invalid header JSON
+                  }
+                }
+                const init: RequestInit = {
+                  method: replayMethod,
+                  headers: parsedHeaders,
+                };
+                if (
+                  replayBody.trim() &&
+                  replayMethod !== 'GET' &&
+                  replayMethod !== 'HEAD'
+                ) {
+                  init.body = replayBody;
+                }
+                const res = await fetch(replayUrl.trim(), init);
+                const durationMs = Math.round(performance.now() - t0);
+                const text = await res.text();
+                const resHeaders: Record<string, string> = {};
+                res.headers.forEach((v, k) => {
+                  resHeaders[k] = v;
+                });
+                setReplayResponse({
+                  status: res.status,
+                  durationMs,
+                  body: text,
+                  headers: resHeaders,
+                });
+              } catch (err) {
+                setReplayResponse({
+                  status: 0,
+                  durationMs: Math.round(performance.now() - t0),
+                  body: String(err),
+                  headers: {},
+                });
+              } finally {
+                setReplayLoading(false);
+              }
             };
 
             const channelBadge = (ch: string) => {
@@ -1880,7 +2156,12 @@ export default function App() {
                         return (
                           <div
                             key={log.id}
-                            onClick={() => setSelectedLogId(log.id)}
+                            onClick={() => {
+                              setSelectedLogId(log.id);
+                              if (inspectorSection === 'replay') {
+                                loadLogIntoReplay(log);
+                              }
+                            }}
                             className={`px-2.5 py-2 cursor-pointer transition-colors ${
                               isSelected
                                 ? 'bg-blue-600/15 border-l-2 border-l-blue-500'
@@ -1889,7 +2170,7 @@ export default function App() {
                                 : 'hover:bg-rf-input/60'
                             }`}
                           >
-                            {/* Row 1: Method + Transport + Status + Target URL */}
+                            {/* Row 1: Method + Transport + Status + GraphQL Op + Target URL */}
                             <div className="flex items-center gap-1.5 min-w-0">
                               <span className="px-1.5 py-0.5 rounded text-[9px] font-mono-code bg-blue-500/15 text-blue-300 font-semibold shrink-0">
                                 {log.method}
@@ -1900,10 +2181,17 @@ export default function App() {
                                 </span>
                               )}
                               <span
-                                className={`text-[10px] font-mono-code font-semibold shrink-0 ${statusColor}`}
+                                className={`text-[10px] font-mono-code font-semibold shrink-0 ${
+                                  log.type === 'BLOCKED' ? 'text-rose-400' : statusColor
+                                }`}
                               >
-                                {log.status ?? '—'}
+                                {log.type === 'BLOCKED' ? 'BLOCKED' : log.status ?? '—'}
                               </span>
+                              {log.graphqlOp && (
+                                <span className="px-1.5 py-0.2 rounded border border-cyan-500/30 bg-cyan-500/15 text-cyan-300 text-[9px] font-mono-code shrink-0">
+                                  GQL:{log.graphqlOp}
+                                </span>
+                              )}
                               <span
                                 className="text-[11px] font-mono-code text-rf-1 truncate"
                                 title={log.url}
@@ -1969,7 +2257,7 @@ export default function App() {
                       ) : (
                         <>
                           {/* Sub-tabs + quick action bar inside detail pane */}
-                          <div className="flex items-center justify-between gap-1 px-3 h-8 bg-rf-raised border-b border-rf-border shrink-0">
+                          <div className="flex items-center justify-between gap-1 px-2.5 h-8 bg-rf-raised border-b border-rf-border shrink-0">
                             <div className="flex items-center gap-1">
                               {(
                                 [
@@ -1991,11 +2279,21 @@ export default function App() {
                                     id: 'headers' as const,
                                     label: t.inspectorTabHeadersRaw,
                                   },
+                                  {
+                                    id: 'replay' as const,
+                                    label: `▶ ${t.inspectorTabReplay}`,
+                                  },
                                 ]
                               ).map((sec) => (
                                 <button
                                   key={sec.id}
-                                  onClick={() => setInspectorSection(sec.id)}
+                                  onClick={() => {
+                                    if (sec.id === 'replay') {
+                                      loadLogIntoReplay(activeLog);
+                                    } else {
+                                      setInspectorSection(sec.id);
+                                    }
+                                  }}
                                   className={`h-6 px-2 rounded text-[10px] font-medium transition-colors ${
                                     inspectorSection === sec.id
                                       ? 'bg-blue-600 text-white'
@@ -2017,24 +2315,18 @@ export default function App() {
                               >
                                 + {t.inspectorMockThisResponse}
                               </button>
-                              {activeLog.requestBody && (
-                                <button
-                                  onClick={() =>
-                                    createBodyRuleFromLog(activeLog, 'merge_request_json')
-                                  }
-                                  className="h-5 px-1.5 rounded bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-300 text-[9px] font-medium"
-                                >
-                                  + {t.inspectorOverrideRequestBody}
-                                </button>
-                              )}
                               <button
                                 onClick={() => {
-                                  navigator.clipboard.writeText(buildCurlFromLog(activeLog));
-                                  showToast('cURL copied');
+                                  addRedirectCorsRule(
+                                    'block',
+                                    activeLog.pathname || activeLog.url
+                                  );
+                                  setActiveTab('routing');
+                                  showToast(`Blocked ${activeLog.pathname || shortUrl(activeLog.url)}`);
                                 }}
-                                className="h-5 px-1.5 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-rf-3 text-[9px]"
+                                className="h-5 px-1.5 rounded bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-[9px] font-medium"
                               >
-                                {t.inspectorCopyCurl}
+                                🚫 {t.inspectorBlockEndpoint}
                               </button>
                             </div>
                           </div>
@@ -2155,6 +2447,15 @@ export default function App() {
                                               >
                                                 {f.value}
                                               </span>
+                                              {f.channel !== 'cookie' && (
+                                                <button
+                                                  onClick={() => mutateOutgoingField(activeLog, f)}
+                                                  title={`${t.inspectorMutateField} (${f.key})`}
+                                                  className="px-1.5 py-0.2 rounded bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/30 text-blue-300 text-[9px] font-sans font-medium shrink-0"
+                                                >
+                                                  ⚡ {t.inspectorMutateField}
+                                                </button>
+                                              )}
                                               <button
                                                 onClick={() => {
                                                   navigator.clipboard.writeText(f.value);
@@ -2359,10 +2660,55 @@ export default function App() {
                             )}
 
                             {/* ================================================= */}
-                            {/* SECTION 3: REQUEST / RESPONSE HEADERS & CURL      */}
+                            {/* SECTION 3: REQUEST / RESPONSE HEADERS & CODE      */}
                             {/* ================================================= */}
                             {inspectorSection === 'headers' && (
                               <div className="space-y-3">
+                                {/* Copy as Code Bar */}
+                                <div className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-md bg-rf-raised border border-rf-border font-sans">
+                                  <span className="text-[10px] font-semibold text-rf-2">
+                                    Copy Request as Code:
+                                  </span>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(buildCurlFromLog(activeLog));
+                                        showToast('Copied cURL');
+                                      }}
+                                      className="h-5 px-2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[10px] font-mono-code text-blue-300"
+                                    >
+                                      {t.inspectorCopyCurl}
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(buildFetchFromLog(activeLog));
+                                        showToast('Copied fetch()');
+                                      }}
+                                      className="h-5 px-2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[10px] font-mono-code text-emerald-300"
+                                    >
+                                      {t.inspectorCopyFetch}
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(buildAxiosFromLog(activeLog));
+                                        showToast('Copied axios');
+                                      }}
+                                      className="h-5 px-2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[10px] font-mono-code text-purple-300"
+                                    >
+                                      {t.inspectorCopyAxios}
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(buildPythonFromLog(activeLog));
+                                        showToast('Copied Python');
+                                      }}
+                                      className="h-5 px-2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[10px] font-mono-code text-amber-300"
+                                    >
+                                      {t.inspectorCopyPython}
+                                    </button>
+                                  </div>
+                                </div>
+
                                 <div className="space-y-1">
                                   <div className="text-[10px] font-sans font-semibold text-rf-3">
                                     {t.inspectorReqHeaders} (
@@ -2434,6 +2780,108 @@ export default function App() {
                                     ))
                                   )}
                                 </div>
+                              </div>
+                            )}
+
+                            {/* ================================================= */}
+                            {/* SECTION 4: LIVE REQUEST REPLAY & EDIT             */}
+                            {/* ================================================= */}
+                            {inspectorSection === 'replay' && (
+                              <div className="space-y-2.5 font-sans">
+                                <div className="flex items-center gap-1.5">
+                                  <select
+                                    value={replayMethod}
+                                    onChange={(e) => setReplayMethod(e.target.value)}
+                                    className="h-7 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-blue-300 font-semibold"
+                                  >
+                                    <option value="GET">GET</option>
+                                    <option value="POST">POST</option>
+                                    <option value="PUT">PUT</option>
+                                    <option value="PATCH">PATCH</option>
+                                    <option value="DELETE">DELETE</option>
+                                  </select>
+                                  <input
+                                    type="text"
+                                    value={replayUrl}
+                                    onChange={(e) => setReplayUrl(e.target.value)}
+                                    placeholder="https://api.example.com/v1/endpoint"
+                                    className="flex-1 h-7 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-rf-1 focus:outline-none focus:border-blue-500"
+                                  />
+                                  <button
+                                    onClick={executeReplay}
+                                    disabled={replayLoading}
+                                    className="h-7 px-3 rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-[11px] font-semibold shrink-0"
+                                  >
+                                    {replayLoading
+                                      ? t.inspectorSendingReplay
+                                      : `▶ ${t.inspectorSendReplay}`}
+                                  </button>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="block text-[10px] font-medium text-rf-4 mb-1">
+                                      {t.inspectorReqHeaders} (JSON)
+                                    </label>
+                                    <textarea
+                                      rows={4}
+                                      value={replayHeadersText}
+                                      onChange={(e) => setReplayHeadersText(e.target.value)}
+                                      spellCheck={false}
+                                      className="w-full p-2 rounded bg-rf-deep border border-rf-border font-mono-code text-[10px] text-blue-300 resize-none focus:outline-none focus:border-blue-500"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-[10px] font-medium text-rf-4 mb-1">
+                                      {t.inspectorReqBody}
+                                    </label>
+                                    <textarea
+                                      rows={4}
+                                      value={replayBody}
+                                      onChange={(e) => setReplayBody(e.target.value)}
+                                      spellCheck={false}
+                                      placeholder='{"key": "value"}'
+                                      className="w-full p-2 rounded bg-rf-deep border border-rf-border font-mono-code text-[10px] text-emerald-300 resize-none focus:outline-none focus:border-blue-500"
+                                    />
+                                  </div>
+                                </div>
+
+                                {replayResponse && (
+                                  <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[10px] font-semibold text-rf-2">
+                                        {t.inspectorReplayResult}
+                                      </span>
+                                      <div className="flex items-center gap-2 font-mono-code text-[10px]">
+                                        <span
+                                          className={
+                                            replayResponse.status >= 400 ||
+                                            replayResponse.status === 0
+                                              ? 'text-rose-400 font-semibold'
+                                              : 'text-emerald-400 font-semibold'
+                                          }
+                                        >
+                                          HTTP {replayResponse.status}
+                                        </span>
+                                        <span className="text-rf-4">
+                                          {replayResponse.durationMs}ms
+                                        </span>
+                                        <button
+                                          onClick={() => {
+                                            navigator.clipboard.writeText(replayResponse.body);
+                                            showToast('Copied');
+                                          }}
+                                          className="px-1.5 py-0.5 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[9px] text-rf-3"
+                                        >
+                                          {t.inspectorCopyBody}
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <pre className="p-2 rounded bg-rf-deep border border-rf-border font-mono-code text-[10px] text-emerald-300 whitespace-pre-wrap break-all max-h-44 overflow-y-auto">
+                                      {formatPretty(replayResponse.body)}
+                                    </pre>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>

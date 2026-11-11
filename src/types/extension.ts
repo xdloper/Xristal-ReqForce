@@ -24,6 +24,8 @@ export interface BodyRule {
   enabled: boolean;
   name: string;
   urlPattern: string;
+  /** Optional GraphQL operationName filter (e.g. GetUserProfile) */
+  graphqlOperation?: string;
   isRegex?: boolean;
   method: 'ALL' | 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   mode: BodyRuleMode;
@@ -37,7 +39,7 @@ export interface RedirectCorsRule {
   id: string;
   enabled: boolean;
   name: string;
-  type: 'redirect' | 'cors_bypass' | 'query_param';
+  type: 'redirect' | 'cors_bypass' | 'query_param' | 'block';
   sourceUrlFilter: string;
   destinationUrl?: string;
   queryKey?: string;
@@ -94,7 +96,14 @@ export interface TokenTrace {
 export interface InterceptLogEntry {
   id: string;
   timestamp: number;
-  type: 'TRAFFIC' | 'HEADER' | 'BODY_REQ' | 'BODY_RES' | 'TELEPRESENCE' | 'REDIRECT';
+  type:
+    | 'TRAFFIC'
+    | 'HEADER'
+    | 'BODY_REQ'
+    | 'BODY_RES'
+    | 'TELEPRESENCE'
+    | 'REDIRECT'
+    | 'BLOCKED';
   transport?: 'fetch' | 'xhr' | 'beacon';
   method: string;
   /** Target request URL */
@@ -106,6 +115,9 @@ export interface InterceptLogEntry {
   pathname?: string;
   contentType?: string;
   responseContentType?: string;
+  /** Detected GraphQL operationName if request is GraphQL */
+  graphqlOp?: string;
+  graphqlType?: 'query' | 'mutation' | 'subscription';
   ruleName: string;
   details: string;
   status?: number;

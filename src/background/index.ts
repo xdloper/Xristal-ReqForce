@@ -49,12 +49,37 @@ const ALL_RESOURCE_TYPES: chrome.declarativeNetRequest.ResourceType[] = [
   'other' as chrome.declarativeNetRequest.ResourceType,
 ];
 
+function expandMacros(input: string): string {
+  const raw = String(input ?? '');
+  if (!raw.includes('{{')) return raw;
+  return raw
+    .replace(/\{\{\s*uuid\s*\}\}/gi, () =>
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+            const r = (Math.random() * 16) | 0;
+            const v = c === 'x' ? r : (r & 0x3) | 0x8;
+            return v.toString(16);
+          })
+    )
+    .replace(/\{\{\s*(timestamp|now)\s*\}\}/gi, () => String(Date.now()))
+    .replace(/\{\{\s*isoDate\s*\}\}/gi, () => new Date().toISOString())
+    .replace(/\{\{\s*randomInt\s*\}\}/gi, () =>
+      String(Math.floor(100000 + Math.random() * 900000))
+    )
+    .replace(/\{\{\s*randomHex\s*\}\}/gi, () =>
+      Math.floor(Math.random() * 0xffffffff)
+        .toString(16)
+        .padStart(8, '0')
+    );
+}
+
 function sanitizeHeaderName(name: string): string {
   return String(name ?? '').trim().replace(/[^a-zA-Z0-9-_]/g, '');
 }
 
 function sanitizeHeaderValue(value: string): string {
-  return String(value ?? '').replace(/[\r\n]/g, '');
+  return expandMacros(String(value ?? '')).replace(/[\r\n]/g, '');
 }
 
 function normalizeUrlFilter(filter: string): string {
@@ -259,7 +284,7 @@ function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule
                 addOrReplaceParams: [
                   {
                     key: rcRule.queryKey.trim(),
-                    value: String(rcRule.queryValue ?? ''),
+                    value: expandMacros(String(rcRule.queryValue ?? '')),
                   },
                 ],
               },
@@ -269,6 +294,18 @@ function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule
         condition: {
           ...(urlFilter !== '*' ? { urlFilter } : {}),
           resourceTypes: ALL_RESOURCE_TYPES,
+        },
+      });
+    } else if (rcRule.type === 'block' && urlFilter !== '*') {
+      rules.push({
+        id: ruleIdCounter++,
+        priority: 95,
+        action: {
+          type: 'block' as chrome.declarativeNetRequest.RuleActionType,
+        },
+        condition: {
+          urlFilter,
+          resourceTypes: ALL_RESOURCE_TYPES.filter((rt) => rt !== 'main_frame'),
         },
       });
     }

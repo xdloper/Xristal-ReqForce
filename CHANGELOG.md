@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-11-11
+
+### Added
+- **Live Request Replay (`▶ Replay`)**: Edit method, URL, headers, and payload of any captured request inside the Inspector and resend it on the spot to view live HTTP status, duration, and response body.
+- **Click-to-Mutate (`⚡ Override`)**: One-click button on every outgoing `Body`, `Query`, and `Header` field in the Inspector (including nested JSON paths like `user.role`) to create a targeted override rule immediately.
+- **Dynamic Variables & Macros**: Support for `{{uuid}}`, `{{timestamp}}`, `{{now}}`, `{{isoDate}}`, `{{randomInt}}`, and `{{randomHex}}` across request headers, query params, and JSON body overrides.
+- **Request Blocker (`🚫 Block`)**: Block matching URLs at both the network (`declarativeNetRequest`) and page (`fetch` / `XHR` / `sendBeacon`) layers to simulate service outages or block trackers, with `BLOCKED` log entries in the Inspector.
+- **GraphQL Operation Detection & Filtering**: Automatically extracts `operationName` from GraphQL requests (`GQL:OperationName` badge in Inspector) and allows Body rules to filter by a specific GraphQL operation.
+- **Copy as Code**: Copy any captured request as **cURL**, **`fetch()`**, **`axios`**, or **Python (`requests`)** from the Inspector.
+
 ## [1.7.2] - 2026-11-11
 
 ### Fixed
