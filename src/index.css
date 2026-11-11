@@ -2,17 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  width: 750px;
-  height: 560px;
+html,
+body,
+#root {
   margin: 0;
   padding: 0;
-  overflow: hidden;
   background-color: #0d0f12;
   color: #e4e4e7;
   font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
   font-size: 12px;
   -webkit-font-smoothing: antialiased;
+}
+
+/* In full-tab or detached resizable window mode, fill 100% of viewport */
+html.is-fluid-window,
+html.is-fluid-window body,
+html.is-fluid-window #root {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .font-mono-code {

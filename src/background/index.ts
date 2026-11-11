@@ -7,6 +7,7 @@ const extApi: typeof chrome =
 
 const FALLBACK_STATE: ExtensionState = {
   globalEnabled: true,
+  trafficMonitorEnabled: true,
   activeProfileId: 'default-dev',
   profiles: [
     {
@@ -23,70 +24,9 @@ const FALLBACK_STATE: ExtensionState = {
         propagateBaggage: true,
         envoyForceTrace: false,
       },
-      headerRules: [
-        {
-          id: 'hdr-1',
-          enabled: true,
-          name: 'x-debug-mode',
-          value: 'true',
-          operation: 'set',
-          target: 'request',
-          urlFilter: '*',
-          comment: 'Enable verbose debug headers',
-        },
-        {
-          id: 'hdr-2',
-          enabled: false,
-          name: 'Authorization',
-          value: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-          operation: 'set',
-          target: 'request',
-          urlFilter: '*',
-          comment: 'Override Bearer token',
-        },
-        {
-          id: 'hdr-3',
-          enabled: false,
-          name: 'Cache-Control',
-          value: 'no-cache, no-store, must-revalidate',
-          operation: 'set',
-          target: 'request',
-          urlFilter: '*',
-          comment: 'Disable browser & CDN cache',
-        },
-      ],
-      bodyRules: [
-        {
-          id: 'body-1',
-          enabled: true,
-          name: 'Override Feature Flags',
-          urlPattern: '/api/v1/features',
-          isRegex: false,
-          method: 'ALL',
-          mode: 'merge_response_json',
-          statusCode: 200,
-          delayMs: 0,
-          contentType: 'application/json',
-          bodyContent: JSON.stringify(
-            {
-              betaDashboard: true,
-              newCheckoutFlow: true,
-              environment: 'manipulated-by-reqforge',
-            },
-            null,
-            2
-          ),
-        },
-      ],
-      redirectCorsRules: [
-        {
-          id: 'cors-1',
-          enabled: false,
-          name: 'Bypass CORS Globally',
-          type: 'cors_bypass',
-          sourceUrlFilter: '*',
-        },
-      ],
+      headerRules: [],
+      bodyRules: [],
+      redirectCorsRules: [],
     },
   ],
   logs: [],
@@ -467,7 +407,7 @@ extApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const newEntry: InterceptLogEntry = message.entry;
     extApi.storage.local.get('devManipulatorState').then(async (data) => {
       const st: ExtensionState = data?.devManipulatorState || FALLBACK_STATE;
-      const updatedLogs = [newEntry, ...(st.logs || [])].slice(0, 100);
+      const updatedLogs = [newEntry, ...(st.logs || [])].slice(0, 150);
       const nextState: ExtensionState = { ...st, logs: updatedLogs };
       await extApi.storage.local.set({ devManipulatorState: nextState });
       sendResponse({ ok: true });

@@ -30,6 +30,7 @@ import {
   RedirectCorsRule,
   TelepresenceConfig,
 } from './types/extension';
+import { XristalLogo } from './components/XristalLogo';
 import {
   extApi,
   INITIAL_STATE,
@@ -508,12 +509,9 @@ export default function App() {
         {/* Left: Our Official Logo, Brand & Workspace */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2.5">
-            <img
-              src="/icons/icon-48.png"
-              alt="ReqForge Logo"
-              className={`w-6 h-6 rounded transition-opacity ${
-                state.globalEnabled ? 'opacity-100' : 'opacity-40 grayscale'
-              }`}
+            <XristalLogo
+              className="h-5 w-8"
+              disabled={!state.globalEnabled}
             />
             <div className="leading-tight">
               <div className="font-semibold text-[13px] tracking-tight text-zinc-100">
@@ -678,6 +676,22 @@ export default function App() {
           </button>
         </div>
       )}
+
+      {/* Wildcard rule safety warning — these can break cookies / Bearer auth on real sites */}
+      {state.globalEnabled &&
+        activeProfile.headerRules.some(
+          (r) =>
+            r.enabled &&
+            (!r.urlFilter || r.urlFilter === '*') &&
+            ['authorization', 'cookie', 'x-debug-mode'].includes(
+              r.name.trim().toLowerCase()
+            )
+        ) && (
+          <div className="px-3.5 py-1.5 bg-amber-500/10 border-b border-amber-500/25 text-[11px] text-amber-300">
+            Warning: an enabled header rule uses URL filter <code>*</code> on an auth-sensitive header.
+            Prefer <strong>Pin Domain</strong> so YouTube / banking / login sites keep their cookies &amp; Bearer tokens intact.
+          </div>
+        )}
 
       {/* Navigation Bar */}
       <nav className="flex items-center justify-between h-9 px-3.5 bg-[#101217] border-b border-zinc-800/80">
@@ -1488,9 +1502,23 @@ export default function App() {
         {activeTab === 'logs' && (
           <div className="flex flex-col h-full">
             <div className="flex items-center justify-between px-3.5 py-2 bg-[#12151a] border-b border-zinc-800 text-[11px]">
-              <span className="text-zinc-400">
-                Captured Fetch / XHR Body Mutations ({state.logs.length})
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-zinc-400">
+                  Live Traffic ({state.logs.length})
+                </span>
+                <label className="flex items-center gap-1.5 text-zinc-300 cursor-pointer">
+                  <Switch
+                    checked={state.trafficMonitorEnabled !== false}
+                    onChange={(val) =>
+                      updateState((prev) => ({
+                        ...prev,
+                        trafficMonitorEnabled: val,
+                      }))
+                    }
+                  />
+                  <span className="text-[10px]">Monitor all fetch/XHR</span>
+                </label>
+              </div>
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => loadExtensionState().then(setState)}
@@ -1507,34 +1535,70 @@ export default function App() {
               </div>
             </div>
 
-            <div className="divide-y divide-zinc-800/50 font-mono-code text-[11px]">
+            <div className="px-3.5 py-1.5 bg-[#0d0f12] border-b border-zinc-800/60 text-[10px] text-zinc-500">
+              Shows what the page is sending (method, URL, status, credentials mode, visible headers). Mutated requests are highlighted — disable the matching rule if a site breaks.
+            </div>
+
+            <div className="divide-y divide-zinc-800/50 font-mono-code text-[11px] overflow-y-auto flex-1">
               {state.logs.length === 0 ? (
                 <div className="py-16 text-center text-zinc-500 font-sans text-xs">
-                  No requests mutated yet. Trigger a matching request on any page to inspect it here.
+                  No traffic captured yet. Open a page, click around, then Refresh.
                 </div>
               ) : (
                 state.logs.map((log) => (
                   <div
                     key={log.id}
-                    className="grid grid-cols-12 gap-2 px-3.5 py-2 items-center hover:bg-zinc-900/40"
+                    className={`px-3.5 py-2 hover:bg-zinc-900/40 ${
+                      log.mutated ? 'bg-amber-500/5 border-l-2 border-l-amber-500/50' : ''
+                    }`}
                   >
-                    <div className="col-span-1">
-                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500/15 text-blue-300 font-semibold">
-                        {log.method}
-                      </span>
+                    <div className="grid grid-cols-12 gap-2 items-center">
+                      <div className="col-span-1">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500/15 text-blue-300 font-semibold">
+                          {log.method}
+                        </span>
+                      </div>
+                      <div className="col-span-1 text-[10px] text-zinc-400">
+                        {log.status ?? '—'}
+                      </div>
+                      <div
+                        className="col-span-6 truncate text-zinc-200"
+                        title={log.url}
+                      >
+                        {log.url}
+                      </div>
+                      <div className="col-span-2 truncate text-emerald-400 text-[10px]">
+                        {log.details}
+                      </div>
+                      <div className="col-span-2 text-right text-zinc-500 text-[10px]">
+                        {new Date(log.timestamp).toLocaleTimeString()}
+                      </div>
                     </div>
-                    <div
-                      className="col-span-6 truncate text-zinc-200"
-                      title={log.url}
-                    >
-                      {log.url}
-                    </div>
-                    <div className="col-span-3 truncate text-emerald-400">
-                      {log.details}
-                    </div>
-                    <div className="col-span-2 text-right text-zinc-500 text-[10px]">
-                      {new Date(log.timestamp).toLocaleTimeString()}
-                    </div>
+                    {(log.credentials || log.requestHeaders || log.ruleName !== '—') && (
+                      <div className="mt-1 pl-0 text-[10px] text-zinc-500 flex flex-wrap gap-x-3 gap-y-0.5">
+                        {log.credentials && (
+                          <span>
+                            credentials: <code className="text-zinc-300">{log.credentials}</code>
+                          </span>
+                        )}
+                        {log.ruleName && log.ruleName !== '—' && (
+                          <span>
+                            rule: <code className="text-amber-300">{log.ruleName}</code>
+                          </span>
+                        )}
+                        {log.requestHeaders &&
+                          Object.keys(log.requestHeaders).length > 0 && (
+                            <span className="truncate max-w-full">
+                              headers:{' '}
+                              <code className="text-zinc-400">
+                                {Object.entries(log.requestHeaders)
+                                  .map(([k, v]) => `${k}=${v}`)
+                                  .join(' · ')}
+                              </code>
+                            </span>
+                          )}
+                      </div>
+                    )}
                   </div>
                 ))
               )}

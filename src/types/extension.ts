@@ -68,15 +68,20 @@ export interface Profile {
 export interface InterceptLogEntry {
   id: string;
   timestamp: number;
-  type: 'HEADER' | 'BODY_REQ' | 'BODY_RES' | 'TELEPRESENCE' | 'REDIRECT';
+  type: 'TRAFFIC' | 'HEADER' | 'BODY_REQ' | 'BODY_RES' | 'TELEPRESENCE' | 'REDIRECT';
   method: string;
   url: string;
   ruleName: string;
   details: string;
+  status?: number;
+  mutated?: boolean;
+  requestHeaders?: Record<string, string>;
+  credentials?: string;
 }
 
 export interface ExtensionState {
   globalEnabled: boolean;
+  trafficMonitorEnabled: boolean;
   activeProfileId: string;
   profiles: Profile[];
   logs: InterceptLogEntry[];

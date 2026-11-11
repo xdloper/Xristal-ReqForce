@@ -22,13 +22,13 @@ export const DEFAULT_PROFILES: Profile[] = [
     headerRules: [
       {
         id: 'hdr-1',
-        enabled: true,
+        enabled: false,
         name: 'x-debug-mode',
         value: 'true',
         operation: 'set',
         target: 'request',
-        urlFilter: '*',
-        comment: 'Enable backend debug mode',
+        urlFilter: '*://localhost/*',
+        comment: 'Enable backend debug mode (scoped to localhost by default)',
       },
       {
         id: 'hdr-2',
@@ -37,7 +37,7 @@ export const DEFAULT_PROFILES: Profile[] = [
         value: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
         operation: 'set',
         target: 'request',
-        urlFilter: '*',
+        urlFilter: '*://localhost/*',
         comment: 'Inject JWT Token',
       },
       {
@@ -47,14 +47,14 @@ export const DEFAULT_PROFILES: Profile[] = [
         value: 'no-cache, no-store, must-revalidate',
         operation: 'set',
         target: 'request',
-        urlFilter: '*',
+        urlFilter: '*://localhost/*',
         comment: 'Bypass cache',
       },
     ],
     bodyRules: [
       {
         id: 'body-1',
-        enabled: true,
+        enabled: false,
         name: 'Feature Flags Override',
         urlPattern: '/api/v1/features',
         isRegex: false,
@@ -100,7 +100,7 @@ export const DEFAULT_PROFILES: Profile[] = [
         enabled: false,
         name: 'Allow CORS on All Domains',
         type: 'cors_bypass',
-        sourceUrlFilter: '*',
+        sourceUrlFilter: '*://localhost/*',
       },
     ],
   },
@@ -126,6 +126,7 @@ export const DEFAULT_PROFILES: Profile[] = [
 
 export const INITIAL_STATE: ExtensionState = {
   globalEnabled: true,
+  trafficMonitorEnabled: true,
   activeProfileId: 'default-dev',
   profiles: DEFAULT_PROFILES,
   logs: [],
@@ -136,10 +137,45 @@ export async function loadExtensionState(): Promise<ExtensionState> {
     if (!extApi?.storage?.local) return INITIAL_STATE;
     const data = await extApi.storage.local.get('devManipulatorState');
     if (data && data.devManipulatorState) {
-      return {
+      const loaded = {
         ...INITIAL_STATE,
         ...data.devManipulatorState,
+        trafficMonitorEnabled:
+          data.devManipulatorState.trafficMonitorEnabled ?? true,
       };
+
+      // Safety migration: disable globally-scoped sample header that broke cookies/auth on real sites
+      let mutated = false;
+      const profiles = (loaded.profiles || []).map((p: Profile) => {
+        const headerRules = (p.headerRules || []).map((r) => {
+          if (
+            r.enabled &&
+            r.name.toLowerCase() === 'x-debug-mode' &&
+            (!r.urlFilter || r.urlFilter === '*')
+          ) {
+            mutated = true;
+            return { ...r, enabled: false, urlFilter: '*://localhost/*' };
+          }
+          return r;
+        });
+        const bodyRules = (p.bodyRules || []).map((r) => {
+          if (r.enabled && r.id === 'body-1') {
+            mutated = true;
+            return { ...r, enabled: false };
+          }
+          return r;
+        });
+        return { ...p, headerRules, bodyRules };
+      });
+
+      const next = { ...loaded, profiles };
+      if (mutated) {
+        await extApi.storage.local.set({ devManipulatorState: next });
+        extApi.runtime?.sendMessage({ type: 'SYNC_STATE', state: next }, () => {
+          void extApi.runtime?.lastError;
+        });
+      }
+      return next;
     }
     await extApi.storage.local.set({ devManipulatorState: INITIAL_STATE });
     return INITIAL_STATE;
