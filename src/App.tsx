@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   ArrowRightLeft,
@@ -11,6 +11,7 @@ import {
   FolderGit2,
   Globe,
   Layers,
+  Languages,
   Plus,
   RotateCw,
   Search,
@@ -26,11 +27,13 @@ import {
   HeaderOperation,
   HeaderRule,
   HeaderTarget,
+  LocalePreference,
   Profile,
   RedirectCorsRule,
   TelepresenceConfig,
 } from './types/extension';
 import { XristalLogo } from './components/XristalLogo';
+import { fill, getMessages, Messages, resolveLocale } from './i18n/messages';
 import {
   extApi,
   INITIAL_STATE,
@@ -40,13 +43,19 @@ import {
 
 type TabType = 'headers' | 'body' | 'routing' | 'logs';
 
-const HEADER_TEMPLATES = [
-  { label: 'Bearer Auth', name: 'Authorization', value: 'Bearer ', target: 'request' as const, op: 'set' as const },
-  { label: 'API Key', name: 'X-API-Key', value: '', target: 'request' as const, op: 'set' as const },
-  { label: 'No Cache', name: 'Cache-Control', value: 'no-cache, no-store', target: 'request' as const, op: 'set' as const },
-  { label: 'Spoof IP', name: 'X-Forwarded-For', value: '127.0.0.1', target: 'request' as const, op: 'set' as const },
-  { label: 'Tenant ID', name: 'X-Tenant-ID', value: 'staging-tenant', target: 'request' as const, op: 'set' as const },
-  { label: 'Strip CSP', name: 'Content-Security-Policy', value: '', target: 'response' as const, op: 'remove' as const },
+const HEADER_TEMPLATES: Array<{
+  labelKey: keyof Messages;
+  name: string;
+  value: string;
+  target: HeaderTarget;
+  op: HeaderOperation;
+}> = [
+  { labelKey: 'tplBearer', name: 'Authorization', value: 'Bearer ', target: 'request', op: 'set' },
+  { labelKey: 'tplApiKey', name: 'X-API-Key', value: '', target: 'request', op: 'set' },
+  { labelKey: 'tplNoCache', name: 'Cache-Control', value: 'no-cache, no-store', target: 'request', op: 'set' },
+  { labelKey: 'tplSpoofIp', name: 'X-Forwarded-For', value: '127.0.0.1', target: 'request', op: 'set' },
+  { labelKey: 'tplTenantId', name: 'X-Tenant-ID', value: 'staging-tenant', target: 'request', op: 'set' },
+  { labelKey: 'tplStripCsp', name: 'Content-Security-Policy', value: '', target: 'response', op: 'remove' },
 ];
 
 function Switch({
@@ -95,6 +104,16 @@ export default function App() {
   const [showCurlModal, setShowCurlModal] = useState(false);
   const [curlInput, setCurlInput] = useState('');
 
+  const t = useMemo(() => getMessages(state.locale), [state.locale]);
+  const resolvedLocale = useMemo(
+    () => resolveLocale(state.locale),
+    [state.locale]
+  );
+
+  useEffect(() => {
+    document.documentElement.lang = resolvedLocale;
+  }, [resolvedLocale]);
+
   useEffect(() => {
     loadExtensionState().then((loaded) => {
       setState(loaded);
@@ -136,6 +155,10 @@ export default function App() {
     });
   };
 
+  const setLocale = (locale: LocalePreference) => {
+    updateState((prev) => ({ ...prev, locale }));
+  };
+
   const activeProfile: Profile =
     state.profiles.find((p) => p.id === state.activeProfileId) || state.profiles[0];
 
@@ -151,7 +174,7 @@ export default function App() {
   // Scope all enabled header rules in profile to current tab domain
   const scopeHeadersToCurrentDomain = () => {
     if (activeDomainPattern === '*') {
-      showToast('Open an HTTP/HTTPS tab first');
+      showToast(t.toastOpenHttpTab);
       return;
     }
     updateActiveProfile((prof) => ({
@@ -161,7 +184,7 @@ export default function App() {
         urlFilter: activeDomainPattern,
       })),
     }));
-    showToast(`Scoped rules to ${activeDomainPattern}`);
+    showToast(fill(t.toastScoped, { pattern: activeDomainPattern }));
   };
 
   // Parse cURL command into Header & Body rules
@@ -233,7 +256,10 @@ export default function App() {
     setCurlInput('');
     setShowCurlModal(false);
     showToast(
-      `Imported ${importedHeaders.length} headers${importedBody ? ' + 1 body rule' : ''}`
+      fill(t.toastImported, {
+        n: importedHeaders.length,
+        body: importedBody ? t.toastImportedBodySuffix : '',
+      })
     );
   };
 
@@ -268,7 +294,7 @@ export default function App() {
       ...prof,
       headerRules: [copy, ...prof.headerRules],
     }));
-    showToast('Rule duplicated');
+    showToast(t.toastDuplicated);
   };
 
   const toggleAllHeaders = (enable: boolean) => {
@@ -297,7 +323,7 @@ export default function App() {
     const newRule: BodyRule = {
       id: `b-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
       enabled: true,
-      name: 'New Endpoint Override',
+      name: t.newEndpointOverride,
       urlPattern: '/api/',
       isRegex: false,
       method: 'ALL',
@@ -335,10 +361,10 @@ export default function App() {
       enabled: true,
       name:
         type === 'cors_bypass'
-          ? 'Global CORS Bypass'
+          ? t.defaultCorsBypassName
           : type === 'query_param'
-          ? 'Query Parameter'
-          : 'Route to Localhost',
+          ? t.defaultQueryParamName
+          : t.defaultRedirectName,
       type,
       sourceUrlFilter:
         type === 'redirect' ? '^https://api\\.example\\.com/(.*)' : activeDomainPattern,
@@ -417,7 +443,7 @@ export default function App() {
     }));
     setNewProfileName('');
     setAddingProfile(false);
-    showToast(`Workspace "${nextProf.name}" created`);
+    showToast(fill(t.toastWorkspaceCreated, { name: nextProf.name }));
   };
 
   const deleteCurrentProfile = () => {
@@ -428,7 +454,7 @@ export default function App() {
       activeProfileId: remaining[0].id,
       profiles: remaining,
     }));
-    showToast('Workspace removed');
+    showToast(t.toastWorkspaceRemoved);
   };
 
   const handleExport = () => {
@@ -441,7 +467,7 @@ export default function App() {
     a.download = `reqforge-${activeProfile.name.toLowerCase().replace(/\s+/g, '-')}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast('Exported configuration');
+    showToast(t.toastExported);
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -452,11 +478,15 @@ export default function App() {
       try {
         const parsed = JSON.parse(String(ev.target?.result));
         if (parsed && Array.isArray(parsed.profiles)) {
-          updateState(() => parsed);
-          showToast('Configuration imported');
+          updateState(() => ({
+            ...INITIAL_STATE,
+            ...parsed,
+            locale: parsed.locale ?? state.locale ?? 'system',
+          }));
+          showToast(t.toastImportedConfig);
         }
       } catch {
-        showToast('Invalid JSON file');
+        showToast(t.toastInvalidJson);
       }
     };
     reader.readAsText(file);
@@ -467,7 +497,7 @@ export default function App() {
       const [tab] = await extApi.tabs.query({ active: true, currentWindow: true });
       if (tab?.id) {
         extApi.tabs.reload(tab.id);
-        showToast('Reloaded active tab');
+        showToast(t.toastReloaded);
       }
     }
   };
@@ -530,7 +560,7 @@ export default function App() {
                 value={newProfileName}
                 onChange={(e) => setNewProfileName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && createProfile()}
-                placeholder="Workspace name..."
+                placeholder={t.workspaceNamePlaceholder}
                 autoFocus
                 className="h-6 px-2 text-[11px] rounded bg-zinc-900 border border-zinc-700 text-zinc-100 focus:outline-none focus:border-blue-500 w-32"
               />
@@ -538,7 +568,7 @@ export default function App() {
                 onClick={createProfile}
                 className="h-6 px-2 text-[11px] rounded bg-blue-600 hover:bg-blue-500 text-white font-medium"
               >
-                Add
+                {t.add}
               </button>
               <button
                 onClick={() => setAddingProfile(false)}
@@ -570,7 +600,7 @@ export default function App() {
               </div>
               <button
                 onClick={() => setAddingProfile(true)}
-                title="New Workspace"
+                title={t.newWorkspace}
                 className="h-7 w-7 rounded-md flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/80 transition-colors"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -578,7 +608,7 @@ export default function App() {
               {state.profiles.length > 1 && (
                 <button
                   onClick={deleteCurrentProfile}
-                  title="Delete Workspace"
+                  title={t.deleteWorkspace}
                   className="h-7 w-7 rounded-md flex items-center justify-center text-zinc-500 hover:text-red-400 hover:bg-zinc-800/80 transition-colors"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -588,20 +618,45 @@ export default function App() {
           )}
         </div>
 
-        {/* Right: cURL Import, Reload, Export/Import & Master Toggle */}
+        {/* Right: Language, cURL Import, Reload, Export/Import & Master Toggle */}
         <div className="flex items-center gap-1.5">
+          <div
+            className="flex items-center gap-1 h-7 px-1.5 rounded-md bg-zinc-900 border border-zinc-800"
+            title={t.language}
+          >
+            <Languages className="w-3 h-3 text-zinc-500 shrink-0" />
+            <select
+              value={state.locale || 'system'}
+              onChange={(e) => setLocale(e.target.value as LocalePreference)}
+              className="bg-transparent text-[10px] font-semibold text-zinc-300 focus:outline-none cursor-pointer pr-0.5 max-w-[72px]"
+            >
+              <option value="system" className="bg-zinc-900">
+                {t.languageSystem}
+                {state.locale === 'system' || !state.locale
+                  ? ` (${resolvedLocale.toUpperCase()})`
+                  : ''}
+              </option>
+              <option value="en" className="bg-zinc-900">
+                {t.languageEn}
+              </option>
+              <option value="tr" className="bg-zinc-900">
+                {t.languageTr}
+              </option>
+            </select>
+          </div>
+
           <button
             onClick={() => setShowCurlModal(true)}
-            title="Import headers & body from a cURL command"
+            title={t.importCurlTitle}
             className="h-7 px-2.5 rounded-md flex items-center gap-1.5 text-[11px] font-medium text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 transition-colors"
           >
             <Terminal className="w-3 h-3 text-blue-400" />
-            <span>Import cURL</span>
+            <span>{t.importCurl}</span>
           </button>
 
           <button
             onClick={reloadTab}
-            title="Reload Active Tab"
+            title={t.reloadTabTitle}
             className="h-7 px-2 rounded-md flex items-center gap-1 text-[11px] font-medium text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 transition-colors"
           >
             <RotateCw className="w-3 h-3" />
@@ -610,13 +665,13 @@ export default function App() {
           <div className="flex items-center rounded-md bg-zinc-900 border border-zinc-800 p-0.5">
             <button
               onClick={handleExport}
-              title="Export JSON"
+              title={t.exportJson}
               className="h-6 w-6 rounded flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"
             >
               <Download className="w-3.5 h-3.5" />
             </button>
             <label
-              title="Import JSON"
+              title={t.importJson}
               className="h-6 w-6 rounded flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 cursor-pointer"
             >
               <Upload className="w-3.5 h-3.5" />
@@ -639,7 +694,7 @@ export default function App() {
                 globalEnabled: !prev.globalEnabled,
               }))
             }
-            title="Enable or pause all extension interceptions"
+            title={t.enablePauseTitle}
             className={`flex items-center gap-2 h-7 px-2.5 rounded-md border cursor-pointer transition-all ${
               state.globalEnabled
                 ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
@@ -654,7 +709,7 @@ export default function App() {
               }
             />
             <span className="text-[11px] font-semibold tracking-wide min-w-[42px] text-center">
-              {state.globalEnabled ? 'AKTİF' : 'PASİF'}
+              {state.globalEnabled ? t.active : t.passive}
             </span>
           </div>
         </div>
@@ -663,16 +718,14 @@ export default function App() {
       {/* Global Paused Banner */}
       {!state.globalEnabled && (
         <div className="flex items-center justify-between px-3.5 py-1.5 bg-rose-500/10 border-b border-rose-500/25 text-[11px] text-rose-300">
-          <span>
-            Extension is currently <strong>PAUSED</strong> — no HTTP headers, redirects, or body rules are being applied.
-          </span>
+          <span>{t.pausedBanner}</span>
           <button
             onClick={() =>
               updateState((prev) => ({ ...prev, globalEnabled: true }))
             }
             className="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-200 font-medium text-[10px]"
           >
-            Enable Now
+            {t.enableNow}
           </button>
         </div>
       )}
@@ -688,8 +741,7 @@ export default function App() {
             )
         ) && (
           <div className="px-3.5 py-1.5 bg-amber-500/10 border-b border-amber-500/25 text-[11px] text-amber-300">
-            Warning: an enabled header rule uses URL filter <code>*</code> on an auth-sensitive header.
-            Prefer <strong>Pin Domain</strong> so YouTube / banking / login sites keep their cookies &amp; Bearer tokens intact.
+            {t.wildcardWarning}
           </div>
         )}
 
@@ -699,30 +751,30 @@ export default function App() {
           {(
             [
               {
-                id: 'headers',
-                label: 'HTTP Headers',
+                id: 'headers' as const,
+                label: t.tabHeaders,
                 icon: SlidersHorizontal,
                 count: activeHeaders,
               },
               {
-                id: 'body',
-                label: 'Body & Mocking',
+                id: 'body' as const,
+                label: t.tabBody,
                 icon: FileCode2,
                 count: activeBodies,
               },
               {
-                id: 'routing',
-                label: 'CORS, Query & Routing',
+                id: 'routing' as const,
+                label: t.tabRouting,
                 icon: ArrowRightLeft,
                 count: activeRouting,
               },
               {
-                id: 'logs',
-                label: 'Inspector',
+                id: 'logs' as const,
+                label: t.tabInspector,
                 icon: Activity,
                 count: state.logs.length,
               },
-            ] as const
+            ]
           ).map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -763,11 +815,11 @@ export default function App() {
           <div className="flex items-center gap-1.5">
             <button
               onClick={scopeHeadersToCurrentDomain}
-              title={`Scope rules to active tab (${activeDomainPattern})`}
+              title={`${t.pinDomainTitle} (${activeDomainPattern})`}
               className="h-6 px-2 rounded flex items-center gap-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-[10px] text-zinc-300"
             >
               <Crosshair className="w-3 h-3 text-emerald-400" />
-              <span>Pin Domain</span>
+              <span>{t.pinDomain}</span>
             </button>
             <div className="relative flex items-center">
               <Search className="w-3 h-3 text-zinc-500 absolute left-2 pointer-events-none" />
@@ -775,7 +827,7 @@ export default function App() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Filter..."
+                placeholder={t.filterPlaceholder}
                 className="h-6 pl-6 pr-2 w-32 rounded bg-zinc-900 border border-zinc-800 text-[11px] text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-600"
               />
             </div>
@@ -794,13 +846,13 @@ export default function App() {
               <div className="flex items-center gap-1 flex-wrap">
                 {HEADER_TEMPLATES.map((tpl) => (
                   <button
-                    key={tpl.label}
+                    key={tpl.labelKey}
                     onClick={() =>
                       addHeaderRule(tpl.name, tpl.value, tpl.target, tpl.op)
                     }
                     className="h-6 px-2 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 hover:border-zinc-700 text-[11px] transition-colors"
                   >
-                    + {tpl.label}
+                    + {t[tpl.labelKey]}
                   </button>
                 ))}
               </div>
@@ -810,7 +862,7 @@ export default function App() {
                     onClick={() => toggleAllHeaders(activeHeaders === 0)}
                     className="h-6 px-2 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-[10px] text-zinc-400 hover:text-zinc-200"
                   >
-                    {activeHeaders === 0 ? 'Enable All' : 'Disable All'}
+                    {activeHeaders === 0 ? t.enableAll : t.disableAll}
                   </button>
                 )}
                 <button
@@ -818,22 +870,22 @@ export default function App() {
                   className="h-6 px-2.5 rounded flex items-center gap-1 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-medium shadow-sm"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Add Rule</span>
+                  <span>{t.addRule}</span>
                 </button>
               </div>
             </div>
 
             <div className="grid grid-cols-12 gap-2 px-3.5 py-1.5 bg-[#101217] border-b border-zinc-800/80 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-              <div className="col-span-3">Target & Action</div>
-              <div className="col-span-3">Header Name</div>
-              <div className="col-span-4">Header Value</div>
-              <div className="col-span-2">URL Pattern</div>
+              <div className="col-span-3">{t.colTargetAction}</div>
+              <div className="col-span-3">{t.colHeaderName}</div>
+              <div className="col-span-4">{t.colHeaderValue}</div>
+              <div className="col-span-2">{t.colUrlPattern}</div>
             </div>
 
             <div className="divide-y divide-zinc-800/50">
               {filteredHeaders.length === 0 ? (
                 <div className="py-16 text-center text-zinc-500 text-xs">
-                  No HTTP header rules match. Click &ldquo;Add Rule&rdquo;, &ldquo;Import cURL&rdquo;, or pick a template.
+                  {t.noHeaderRules}
                 </div>
               ) : (
                 filteredHeaders.map((rule) => (
@@ -878,9 +930,9 @@ export default function App() {
                         }
                         className="h-6 px-1.5 rounded bg-zinc-900 border border-zinc-800 text-[11px] text-zinc-300 focus:outline-none focus:border-zinc-600"
                       >
-                        <option value="set">Set</option>
-                        <option value="append">Append</option>
-                        <option value="remove">Remove</option>
+                        <option value="set">{t.set}</option>
+                        <option value="append">{t.append}</option>
+                        <option value="remove">{t.remove}</option>
                       </select>
                     </div>
 
@@ -891,7 +943,7 @@ export default function App() {
                         onChange={(e) =>
                           updateHeaderRule(rule.id, { name: e.target.value })
                         }
-                        placeholder="Header-Name"
+                        placeholder={t.headerNamePlaceholder}
                         className="w-full h-6 px-2 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500"
                       />
                     </div>
@@ -906,8 +958,8 @@ export default function App() {
                         }
                         placeholder={
                           rule.operation === 'remove'
-                            ? 'Header will be stripped'
-                            : 'Value...'
+                            ? t.headerWillBeStripped
+                            : t.headerValuePlaceholder
                         }
                         className="w-full h-6 px-2 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-emerald-300 placeholder-zinc-600 disabled:opacity-40 focus:outline-none focus:border-blue-500"
                       />
@@ -925,14 +977,14 @@ export default function App() {
                       />
                       <button
                         onClick={() => duplicateHeaderRule(rule)}
-                        title="Duplicate rule"
+                        title={t.duplicateRule}
                         className="h-6 w-5 rounded shrink-0 flex items-center justify-center text-zinc-500 hover:text-zinc-200"
                       >
                         <CopyPlus className="w-3 h-3" />
                       </button>
                       <button
                         onClick={() => deleteHeaderRule(rule.id)}
-                        title="Delete rule"
+                        title={t.deleteRule}
                         className="h-6 w-5 rounded shrink-0 flex items-center justify-center text-zinc-500 hover:text-red-400"
                       >
                         <Trash2 className="w-3 h-3" />
@@ -953,20 +1005,20 @@ export default function App() {
             <div className="col-span-4 border-r border-zinc-800/80 flex flex-col bg-[#101217]">
               <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800/80">
                 <span className="text-[11px] font-medium text-zinc-400">
-                  Body Rules ({activeProfile.bodyRules.length})
+                  {t.bodyRules} ({activeProfile.bodyRules.length})
                 </span>
                 <button
                   onClick={addBodyRule}
                   className="h-6 px-2 rounded flex items-center gap-1 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-medium"
                 >
-                  <Plus className="w-3 h-3" /> New
+                  <Plus className="w-3 h-3" /> {t.new}
                 </button>
               </div>
 
               <div className="flex-1 overflow-y-auto divide-y divide-zinc-800/50">
                 {activeProfile.bodyRules.length === 0 ? (
                   <div className="p-6 text-center text-zinc-500 text-xs">
-                    No body rules yet.
+                    {t.noBodyRules}
                   </div>
                 ) : (
                   activeProfile.bodyRules.map((rule) => {
@@ -1026,7 +1078,7 @@ export default function App() {
                 if (!selected) {
                   return (
                     <div className="m-auto text-zinc-500 text-xs">
-                      Create or select a rule on the left to configure body manipulation.
+                      {t.selectBodyRule}
                     </div>
                   );
                 }
@@ -1035,7 +1087,7 @@ export default function App() {
                     <div className="grid grid-cols-12 gap-2.5">
                       <div className="col-span-5">
                         <label className="block text-[10px] font-medium text-zinc-400 mb-1">
-                          Rule Name
+                          {t.ruleName}
                         </label>
                         <input
                           type="text"
@@ -1043,14 +1095,14 @@ export default function App() {
                           onChange={(e) =>
                             updateBodyRule(selected.id, { name: e.target.value })
                           }
-                          placeholder="e.g. Override Feature Flags"
+                          placeholder={t.ruleNamePlaceholder}
                           className="w-full h-7 px-2.5 rounded bg-zinc-900 border border-zinc-800 text-xs text-zinc-100 focus:outline-none focus:border-blue-500"
                         />
                       </div>
 
                       <div className="col-span-7">
                         <label className="block text-[10px] font-medium text-zinc-400 mb-1">
-                          Mutation Strategy
+                          {t.mutationStrategy}
                         </label>
                         <select
                           value={selected.mode}
@@ -1062,16 +1114,16 @@ export default function App() {
                           className="w-full h-7 px-2 rounded bg-zinc-900 border border-zinc-800 text-xs text-blue-300 font-medium focus:outline-none focus:border-blue-500"
                         >
                           <option value="merge_response_json">
-                            Response: Shallow Merge JSON Keys
+                            {t.modeMergeResponse}
                           </option>
                           <option value="replace_response">
-                            Response: Full Body Replace (Mock Endpoint)
+                            {t.modeReplaceResponse}
                           </option>
                           <option value="merge_request_json">
-                            Request: Shallow Merge Outgoing JSON
+                            {t.modeMergeRequest}
                           </option>
                           <option value="replace_request">
-                            Request: Replace Outgoing Body
+                            {t.modeReplaceRequest}
                           </option>
                         </select>
                       </div>
@@ -1080,7 +1132,7 @@ export default function App() {
                     <div className="grid grid-cols-12 gap-2.5">
                       <div className="col-span-2">
                         <label className="block text-[10px] font-medium text-zinc-400 mb-1">
-                          Method
+                          {t.method}
                         </label>
                         <select
                           value={selected.method}
@@ -1102,7 +1154,7 @@ export default function App() {
 
                       <div className="col-span-6">
                         <label className="block text-[10px] font-medium text-zinc-400 mb-1">
-                          URL Pattern (Substring or Wildcard *)
+                          {t.urlPatternLabel}
                         </label>
                         <input
                           type="text"
@@ -1119,7 +1171,7 @@ export default function App() {
 
                       <div className="col-span-2">
                         <label className="block text-[10px] font-medium text-zinc-400 mb-1">
-                          HTTP Status
+                          {t.httpStatus}
                         </label>
                         <input
                           type="number"
@@ -1135,7 +1187,7 @@ export default function App() {
 
                       <div className="col-span-2">
                         <label className="block text-[10px] font-medium text-zinc-400 mb-1">
-                          Delay (ms)
+                          {t.delayMs}
                         </label>
                         <input
                           type="number"
@@ -1153,7 +1205,7 @@ export default function App() {
                     <div className="flex-1 flex flex-col">
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[10px] font-medium text-zinc-400">
-                          JSON / Text Payload
+                          {t.jsonPayload}
                         </span>
                         <button
                           onClick={() => {
@@ -1165,14 +1217,14 @@ export default function App() {
                                   2
                                 ),
                               });
-                              showToast('Formatted JSON');
+                              showToast(t.toastFormattedJson);
                             } catch {
-                              showToast('Invalid JSON syntax');
+                              showToast(t.toastInvalidJsonSyntax);
                             }
                           }}
                           className="text-[11px] text-blue-400 hover:text-blue-300"
                         >
-                          Format JSON
+                          {t.formatJson}
                         </button>
                       </div>
                       <textarea
@@ -1203,7 +1255,7 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <Globe className="w-3.5 h-3.5 text-blue-400" />
                   <span className="text-xs font-semibold text-zinc-100">
-                    CORS, Query Params & URL Redirects
+                    {t.corsSectionTitle}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -1211,19 +1263,19 @@ export default function App() {
                     onClick={() => addRedirectCorsRule('cors_bypass')}
                     className="h-6 px-2 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-medium"
                   >
-                    + CORS Bypass
+                    {t.corsBypass}
                   </button>
                   <button
                     onClick={() => addRedirectCorsRule('query_param')}
                     className="h-6 px-2 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-medium"
                   >
-                    + Query Param
+                    {t.queryParam}
                   </button>
                   <button
                     onClick={() => addRedirectCorsRule('redirect')}
                     className="h-6 px-2.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-medium"
                   >
-                    + URL Redirect
+                    {t.urlRedirect}
                   </button>
                 </div>
               </div>
@@ -1231,7 +1283,7 @@ export default function App() {
               <div className="divide-y divide-zinc-800/60">
                 {activeProfile.redirectCorsRules.length === 0 ? (
                   <div className="py-8 text-center text-zinc-500 text-xs">
-                    No active CORS, Query Param, or Redirect rules.
+                    {t.noRoutingRules}
                   </div>
                 ) : (
                   activeProfile.redirectCorsRules.map((rule) => (
@@ -1278,7 +1330,7 @@ export default function App() {
                               sourceUrlFilter: e.target.value,
                             })
                           }
-                          placeholder="Source URL filter (* or ^https://api\.prod\.com/(.*))"
+                          placeholder={t.sourceUrlPlaceholder}
                           className="w-full h-6 px-2 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-zinc-100"
                         />
                       </div>
@@ -1346,10 +1398,10 @@ export default function App() {
                   <FolderGit2 className="w-3.5 h-3.5 text-indigo-400" />
                   <div>
                     <span className="text-xs font-semibold text-zinc-100">
-                      Cluster & Mesh Context Propagation (Optional)
+                      {t.clusterTitle}
                     </span>
                     <p className="text-[11px] text-zinc-500">
-                      Inject W3C OpenTelemetry baggage, Envoy trace flags, or Kubernetes Telepresence intercept headers.
+                      {t.clusterHint}
                     </p>
                   </div>
                 </div>
@@ -1364,14 +1416,14 @@ export default function App() {
                 <div className="grid grid-cols-2 gap-3 pt-2 border-t border-zinc-800/80">
                   <div>
                     <label className="block text-[10px] font-medium text-zinc-400 mb-1">
-                      Intercept ID (x-telepresence-intercept-id)
+                      {t.interceptId}
                     </label>
                     <div className="flex gap-1">
                       <input
                         type="text"
                         value={activeProfile.telepresence.interceptId}
                         onChange={(e) => handleInterceptPaste(e.target.value)}
-                        placeholder="Paste ID or CLI output..."
+                        placeholder={t.interceptPlaceholder}
                         className="flex-1 h-7 px-2 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-zinc-100 focus:outline-none focus:border-blue-500"
                       />
                       <button
@@ -1383,7 +1435,7 @@ export default function App() {
                           setTimeout(() => setCopiedId(false), 1200);
                         }}
                         className="h-7 px-2 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400"
-                        title="Copy ID"
+                        title={t.copyId}
                       >
                         {copiedId ? (
                           <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -1396,7 +1448,7 @@ export default function App() {
 
                   <div>
                     <label className="block text-[10px] font-medium text-zinc-400 mb-1">
-                      W3C OpenTelemetry Baggage
+                      {t.otelBaggage}
                     </label>
                     <input
                       type="text"
@@ -1412,7 +1464,7 @@ export default function App() {
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="block text-[10px] font-medium text-zinc-400 mb-1">
-                        Custom Context Header
+                        {t.customContextHeader}
                       </label>
                       <input
                         type="text"
@@ -1428,7 +1480,7 @@ export default function App() {
                     </div>
                     <div>
                       <label className="block text-[10px] font-medium text-zinc-400 mb-1">
-                        Value
+                        {t.value}
                       </label>
                       <input
                         type="text"
@@ -1446,7 +1498,7 @@ export default function App() {
 
                   <div>
                     <label className="block text-[10px] font-medium text-zinc-400 mb-1">
-                      Target Host Scope
+                      {t.targetHostScope}
                     </label>
                     <input
                       type="text"
@@ -1473,7 +1525,7 @@ export default function App() {
                         }
                         className="accent-blue-500"
                       />
-                      <span>Sync Intercept ID into W3C baggage</span>
+                      <span>{t.syncInterceptBaggage}</span>
                     </label>
 
                     <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
@@ -1487,7 +1539,7 @@ export default function App() {
                         }
                         className="accent-blue-500"
                       />
-                      <span>Inject x-envoy-force-trace: true</span>
+                      <span>{t.injectEnvoyTrace}</span>
                     </label>
                   </div>
                 </div>
@@ -1504,7 +1556,7 @@ export default function App() {
             <div className="flex items-center justify-between px-3.5 py-2 bg-[#12151a] border-b border-zinc-800 text-[11px]">
               <div className="flex items-center gap-3">
                 <span className="text-zinc-400">
-                  Live Traffic ({state.logs.length})
+                  {t.liveTraffic} ({state.logs.length})
                 </span>
                 <label className="flex items-center gap-1.5 text-zinc-300 cursor-pointer">
                   <Switch
@@ -1516,7 +1568,7 @@ export default function App() {
                       }))
                     }
                   />
-                  <span className="text-[10px]">Monitor all fetch/XHR</span>
+                  <span className="text-[10px]">{t.monitorAll}</span>
                 </label>
               </div>
               <div className="flex items-center gap-1.5">
@@ -1524,25 +1576,25 @@ export default function App() {
                   onClick={() => loadExtensionState().then(setState)}
                   className="h-6 px-2.5 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300"
                 >
-                  Refresh
+                  {t.refresh}
                 </button>
                 <button
                   onClick={() => updateState((prev) => ({ ...prev, logs: [] }))}
                   className="h-6 px-2.5 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-red-400"
                 >
-                  Clear
+                  {t.clear}
                 </button>
               </div>
             </div>
 
             <div className="px-3.5 py-1.5 bg-[#0d0f12] border-b border-zinc-800/60 text-[10px] text-zinc-500">
-              Shows what the page is sending (method, URL, status, credentials mode, visible headers). Mutated requests are highlighted — disable the matching rule if a site breaks.
+              {t.inspectorHint}
             </div>
 
             <div className="divide-y divide-zinc-800/50 font-mono-code text-[11px] overflow-y-auto flex-1">
               {state.logs.length === 0 ? (
                 <div className="py-16 text-center text-zinc-500 font-sans text-xs">
-                  No traffic captured yet. Open a page, click around, then Refresh.
+                  {t.noTraffic}
                 </div>
               ) : (
                 state.logs.map((log) => (
@@ -1611,7 +1663,7 @@ export default function App() {
       <footer className="h-6 px-3.5 bg-[#101217] border-t border-zinc-800/80 flex items-center justify-between text-[10px] text-zinc-500">
         <div className="flex items-center gap-2">
           <span>
-            Tab Scope: <code className="text-zinc-300 font-mono-code">{activeDomainPattern}</code>
+            {t.tabScope}: <code className="text-zinc-300 font-mono-code">{activeDomainPattern}</code>
           </span>
         </div>
         <span>ReqForge by Xristal</span>
@@ -1623,7 +1675,7 @@ export default function App() {
           <div className="w-full max-w-lg rounded-lg bg-[#12151a] border border-zinc-700 p-4 space-y-3 shadow-2xl">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-zinc-100">
-                Import Rules from cURL
+                {t.curlModalTitle}
               </span>
               <button
                 onClick={() => setShowCurlModal(false)}
@@ -1632,9 +1684,7 @@ export default function App() {
                 ✕
               </button>
             </div>
-            <p className="text-[11px] text-zinc-400">
-              Right-click any network request in DevTools → <strong>Copy as cURL</strong> and paste below. Headers (<code>-H</code>) and request payloads (<code>--data-raw</code>) will be extracted automatically.
-            </p>
+            <p className="text-[11px] text-zinc-400">{t.curlModalHint}</p>
             <textarea
               rows={6}
               value={curlInput}
@@ -1648,13 +1698,13 @@ export default function App() {
                 onClick={() => setShowCurlModal(false)}
                 className="h-7 px-3 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300"
               >
-                Cancel
+                {t.cancel}
               </button>
               <button
                 onClick={handleImportCurl}
                 className="h-7 px-3 rounded bg-blue-600 hover:bg-blue-500 text-xs text-white font-medium"
               >
-                Extract & Add Rules
+                {t.extractAddRules}
               </button>
             </div>
           </div>

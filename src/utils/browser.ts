@@ -127,6 +127,7 @@ export const DEFAULT_PROFILES: Profile[] = [
 export const INITIAL_STATE: ExtensionState = {
   globalEnabled: true,
   trafficMonitorEnabled: true,
+  locale: 'system',
   activeProfileId: 'default-dev',
   profiles: DEFAULT_PROFILES,
   logs: [],
@@ -142,6 +143,7 @@ export async function loadExtensionState(): Promise<ExtensionState> {
         ...data.devManipulatorState,
         trafficMonitorEnabled:
           data.devManipulatorState.trafficMonitorEnabled ?? true,
+        locale: data.devManipulatorState.locale ?? 'system',
       };
 
       // Safety migration: disable globally-scoped sample header that broke cookies/auth on real sites

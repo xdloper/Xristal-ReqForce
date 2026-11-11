@@ -79,9 +79,13 @@ export interface InterceptLogEntry {
   credentials?: string;
 }
 
+export type LocalePreference = 'system' | 'en' | 'tr';
+
 export interface ExtensionState {
   globalEnabled: boolean;
   trafficMonitorEnabled: boolean;
+  /** `system` follows browser/OS language (tr → Turkish, else English). Default: system. */
+  locale: LocalePreference;
   activeProfileId: string;
   profiles: Profile[];
   logs: InterceptLogEntry[];

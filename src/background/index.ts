@@ -8,6 +8,7 @@ const extApi: typeof chrome =
 const FALLBACK_STATE: ExtensionState = {
   globalEnabled: true,
   trafficMonitorEnabled: true,
+  locale: 'system',
   activeProfileId: 'default-dev',
   profiles: [
     {
