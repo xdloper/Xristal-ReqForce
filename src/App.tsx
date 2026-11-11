@@ -401,6 +401,9 @@ export default function App() {
   useEffect(() => {
     loadExtensionState().then((loaded) => {
       setState(loaded);
+      if (loaded.lastActiveTab) {
+        setActiveTab(loaded.lastActiveTab);
+      }
       const prof =
         loaded.profiles.find((p) => p.id === loaded.activeProfileId) ||
         loaded.profiles[0];
@@ -797,6 +800,7 @@ export default function App() {
       headerRules: [],
       bodyRules: [],
       redirectCorsRules: [],
+      variables: [],
     };
     updateState((prev) => ({
       ...prev,
@@ -820,7 +824,25 @@ export default function App() {
   };
 
   const handleExport = () => {
-    const blob = new Blob([JSON.stringify(state, null, 2)], {
+    const cleanExport = {
+      schemaVersion: 2,
+      exportedAt: new Date().toISOString(),
+      appVersion,
+      globalEnabled: state.globalEnabled,
+      trafficMonitorEnabled: state.trafficMonitorEnabled,
+      locale: state.locale,
+      theme: state.theme,
+      lastActiveTab: activeTab,
+      activeProfileId: state.activeProfileId,
+      profiles: state.profiles.map((p) => ({
+        ...p,
+        headerRules: p.headerRules || [],
+        bodyRules: p.bodyRules || [],
+        redirectCorsRules: p.redirectCorsRules || [],
+        variables: p.variables || [],
+      })),
+    };
+    const blob = new Blob([JSON.stringify(cleanExport, null, 2)], {
       type: 'application/json',
     });
     const url = URL.createObjectURL(blob);
@@ -840,11 +862,24 @@ export default function App() {
       try {
         const parsed = JSON.parse(String(ev.target?.result));
         if (parsed && Array.isArray(parsed.profiles)) {
-          updateState(() => ({
+          const normalizedProfiles: Profile[] = parsed.profiles.map((p: Profile) => ({
+            ...p,
+            headerRules: Array.isArray(p.headerRules) ? p.headerRules : [],
+            bodyRules: Array.isArray(p.bodyRules) ? p.bodyRules : [],
+            redirectCorsRules: Array.isArray(p.redirectCorsRules)
+              ? p.redirectCorsRules
+              : [],
+            variables: Array.isArray(p.variables) ? p.variables : [],
+          }));
+          updateState((prev) => ({
             ...INITIAL_STATE,
             ...parsed,
-            locale: parsed.locale ?? state.locale ?? 'system',
-            theme: parsed.theme ?? state.theme ?? 'system',
+            profiles: normalizedProfiles,
+            locale: parsed.locale ?? prev.locale ?? 'system',
+            theme: parsed.theme ?? prev.theme ?? 'system',
+            trafficMonitorEnabled:
+              parsed.trafficMonitorEnabled ?? prev.trafficMonitorEnabled ?? true,
+            logs: prev.logs || [],
           }));
           showToast(t.toastImportedConfig);
         }
@@ -1112,8 +1147,11 @@ export default function App() {
                 title={tab.label}
                 onClick={() => {
                   setActiveTab(tab.id);
+                  updateState((prev) => ({ ...prev, lastActiveTab: tab.id }));
                   if (tab.id === 'logs') {
-                    loadExtensionState().then(setState);
+                    loadExtensionState().then((loaded) =>
+                      setState({ ...loaded, lastActiveTab: 'logs' })
+                    );
                   }
                 }}
                 className={`h-full px-2.5 flex items-center gap-1.5 border-b-2 text-[11px] font-medium whitespace-nowrap transition-colors ${

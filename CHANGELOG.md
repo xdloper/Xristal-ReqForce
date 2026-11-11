@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.7] - 2026-11-12
+
+### Added
+- **Full State & UI Persistence (`chrome.storage.local` + Export/Import)**:
+  - Every workspace's `variables`, `headerRules`, `bodyRules` (including `graphqlOperation`), `redirectCorsRules` (including `block` rules), `telepresence` context, `locale`, `theme`, `trafficMonitorEnabled`, and `lastActiveTab` are persisted immediately in `chrome.storage.local`.
+  - **Clean Export JSON**: `Export JSON` now exports all workspaces, rules, custom `variables`, and settings cleanly without dumping ephemeral live traffic logs (`logs`) into your configuration file, and `Import JSON` restores and normalizes all fields seamlessly.
+
 ## [1.8.6] - 2026-11-12
 
 ### Added

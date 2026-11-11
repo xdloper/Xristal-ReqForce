@@ -103,6 +103,7 @@ export const DEFAULT_PROFILES: Profile[] = [
         sourceUrlFilter: '*://localhost/*',
       },
     ],
+    variables: [],
   },
   {
     id: 'staging-profile',
@@ -121,6 +122,7 @@ export const DEFAULT_PROFILES: Profile[] = [
     headerRules: [],
     bodyRules: [],
     redirectCorsRules: [],
+    variables: [],
   },
 ];
 
@@ -129,6 +131,7 @@ export const INITIAL_STATE: ExtensionState = {
   trafficMonitorEnabled: true,
   locale: 'system',
   theme: 'system',
+  lastActiveTab: 'headers',
   activeProfileId: 'default-dev',
   profiles: DEFAULT_PROFILES,
   logs: [],
@@ -146,9 +149,10 @@ export async function loadExtensionState(): Promise<ExtensionState> {
           data.devManipulatorState.trafficMonitorEnabled ?? true,
         locale: data.devManipulatorState.locale ?? 'system',
         theme: data.devManipulatorState.theme ?? 'system',
+        lastActiveTab: data.devManipulatorState.lastActiveTab ?? 'headers',
       };
 
-      // Safety migration: disable globally-scoped sample header that broke cookies/auth on real sites
+      // Safety migration & normalize all profile arrays (headerRules, bodyRules, redirectCorsRules, variables)
       let mutated = false;
       const profiles = (loaded.profiles || []).map((p: Profile) => {
         const headerRules = (p.headerRules || []).map((r) => {
@@ -169,7 +173,17 @@ export async function loadExtensionState(): Promise<ExtensionState> {
           }
           return r;
         });
-        return { ...p, headerRules, bodyRules };
+        const redirectCorsRules = Array.isArray(p.redirectCorsRules)
+          ? p.redirectCorsRules
+          : [];
+        const variables = Array.isArray(p.variables) ? p.variables : [];
+        return {
+          ...p,
+          headerRules,
+          bodyRules,
+          redirectCorsRules,
+          variables,
+        };
       });
 
       const next = { ...loaded, profiles };

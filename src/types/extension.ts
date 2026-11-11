@@ -145,6 +145,7 @@ export interface InterceptLogEntry {
 
 export type LocalePreference = 'system' | 'en' | 'tr';
 export type ThemePreference = 'system' | 'light' | 'dark';
+export type MainTabType = 'headers' | 'body' | 'routing' | 'logs' | 'settings';
 
 export interface ExtensionState {
   globalEnabled: boolean;
@@ -153,6 +154,8 @@ export interface ExtensionState {
   locale: LocalePreference;
   /** `system` follows OS color scheme. Default: system. */
   theme: ThemePreference;
+  /** Last opened popup tab so user returns where they left off */
+  lastActiveTab?: MainTabType;
   activeProfileId: string;
   profiles: Profile[];
   logs: InterceptLogEntry[];
