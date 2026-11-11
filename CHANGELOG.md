@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1] - 2026-11-11
+
+### Fixed
+- Coerced non-string `XMLHttpRequest.setRequestHeader(name, value)` values (e.g. numeric `xhr.setRequestHeader('x-spiferack', 1)` on `npmjs.com`) and wrapped page-world token/field inspection in defensive string coercion so `injected.js` never throws `TypeError: *.startsWith is not a function`.
+
 ## [1.7.0] - 2026-11-11
 
 ### Added

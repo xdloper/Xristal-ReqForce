@@ -30,17 +30,20 @@ import {
     return currentState ? currentState.trafficMonitorEnabled !== false : true;
   }
 
-  function cap(text: string | undefined): string | undefined {
-    if (!text) return undefined;
-    return text.length > MAX_BODY_CHARS
-      ? `${text.slice(0, MAX_BODY_CHARS)}\n…[truncated ${text.length - MAX_BODY_CHARS} chars]`
-      : text;
+  function cap(text: unknown): string | undefined {
+    if (text == null) return undefined;
+    const str = typeof text === 'string' ? text : String(text);
+    if (!str) return undefined;
+    return str.length > MAX_BODY_CHARS
+      ? `${str.slice(0, MAX_BODY_CHARS)}\n…[truncated ${str.length - MAX_BODY_CHARS} chars]`
+      : str;
   }
 
-  function tryDecodeJwt(val: string): Record<string, unknown> | undefined {
+  function tryDecodeJwt(val: unknown): Record<string, unknown> | undefined {
+    if (typeof val !== 'string') return undefined;
     const clean = val.trim().replace(/^bearer\s+/i, '').trim();
     const parts = clean.split('.');
-    if (parts.length !== 3 || !parts[0].startsWith('eyJ')) return undefined;
+    if (parts.length !== 3 || !parts[0]?.startsWith('eyJ')) return undefined;
     try {
       const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
       const padded = base64.padEnd(
@@ -60,8 +63,8 @@ import {
     }
   }
 
-  function maskSecret(val: string): string {
-    const v = val.trim();
+  function maskSecret(val: unknown): string {
+    const v = String(val ?? '').trim();
     if (v.length <= 16) return v;
     if (/^bearer\s+/i.test(v)) {
       const tok = v.replace(/^bearer\s+/i, '');
@@ -80,7 +83,7 @@ import {
     const out: Record<string, string> = {};
     try {
       const raw = typeof document !== 'undefined' ? document.cookie : '';
-      if (!raw) return out;
+      if (!raw || typeof raw !== 'string') return out;
       for (const part of raw.split(';')) {
         const trimmed = part.trim();
         if (!trimmed) continue;
@@ -105,115 +108,127 @@ import {
     credentials: string
   ): TokenTrace[] {
     const traces: TokenTrace[] = [];
-
-    // 1. Headers
-    for (const [k, v] of Object.entries(reqHeaders)) {
-      if (
-        TOKEN_KEY_RE.test(k) ||
-        /^bearer\s+/i.test(v) ||
-        (v.startsWith('eyJ') && v.split('.').length === 3)
-      ) {
-        traces.push({
-          channel: 'header',
-          key: k,
-          preview: maskSecret(v),
-          rawValue: v,
-          jwtDecoded: tryDecodeJwt(v),
-        });
+    try {
+      // 1. Headers
+      for (const [rawK, rawV] of Object.entries(reqHeaders || {})) {
+        const k = String(rawK ?? '');
+        const v = String(rawV ?? '');
+        if (
+          TOKEN_KEY_RE.test(k) ||
+          /^bearer\s+/i.test(v) ||
+          (v.startsWith('eyJ') && v.split('.').length === 3)
+        ) {
+          traces.push({
+            channel: 'header',
+            key: k,
+            preview: maskSecret(v),
+            rawValue: v,
+            jwtDecoded: tryDecodeJwt(v),
+          });
+        }
       }
-    }
 
-    // 2. Query string
-    for (const [k, v] of Object.entries(queryParams)) {
-      if (
-        TOKEN_KEY_RE.test(k) ||
-        (v.startsWith('eyJ') && v.split('.').length === 3)
-      ) {
-        traces.push({
-          channel: 'query',
-          key: k,
-          preview: maskSecret(v),
-          rawValue: v,
-          jwtDecoded: tryDecodeJwt(v),
-        });
+      // 2. Query string
+      for (const [rawK, rawV] of Object.entries(queryParams || {})) {
+        const k = String(rawK ?? '');
+        const v = String(rawV ?? '');
+        if (
+          TOKEN_KEY_RE.test(k) ||
+          (v.startsWith('eyJ') && v.split('.').length === 3)
+        ) {
+          traces.push({
+            channel: 'query',
+            key: k,
+            preview: maskSecret(v),
+            rawValue: v,
+            jwtDecoded: tryDecodeJwt(v),
+          });
+        }
       }
-    }
 
-    // 3. Request body (JSON or form-urlencoded)
-    if (reqBody) {
-      try {
-        const parsed = JSON.parse(reqBody);
-        const walk = (obj: unknown, prefix = '') => {
-          if (!obj || typeof obj !== 'object') return;
-          for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
-            const path = prefix ? `${prefix}.${k}` : k;
-            if (typeof v === 'string' && v.trim()) {
-              if (
-                TOKEN_KEY_RE.test(k) ||
-                /^bearer\s+/i.test(v) ||
-                (v.startsWith('eyJ') && v.split('.').length === 3)
-              ) {
-                traces.push({
-                  channel: 'body',
-                  key: path,
-                  preview: maskSecret(v),
-                  rawValue: v,
-                  jwtDecoded: tryDecodeJwt(v),
-                });
+      // 3. Request body (JSON or form-urlencoded)
+      if (typeof reqBody === 'string' && reqBody) {
+        try {
+          const parsed = JSON.parse(reqBody);
+          const walk = (obj: unknown, prefix = '') => {
+            if (!obj || typeof obj !== 'object') return;
+            for (const [rawK, v] of Object.entries(obj as Record<string, unknown>)) {
+              const k = String(rawK ?? '');
+              const path = prefix ? `${prefix}.${k}` : k;
+              if (typeof v === 'string' && v.trim()) {
+                if (
+                  TOKEN_KEY_RE.test(k) ||
+                  /^bearer\s+/i.test(v) ||
+                  (v.startsWith('eyJ') && v.split('.').length === 3)
+                ) {
+                  traces.push({
+                    channel: 'body',
+                    key: path,
+                    preview: maskSecret(v),
+                    rawValue: v,
+                    jwtDecoded: tryDecodeJwt(v),
+                  });
+                }
+              } else if (typeof v === 'object' && v !== null) {
+                walk(v, path);
               }
-            } else if (typeof v === 'object' && v !== null) {
-              walk(v, path);
             }
-          }
-        };
-        walk(parsed);
-      } catch {
-        // URLSearchParams body
-        if (reqBody.includes('=')) {
-          try {
-            const sp = new URLSearchParams(reqBody);
-            sp.forEach((v, k) => {
-              if (TOKEN_KEY_RE.test(k) || (v.startsWith('eyJ') && v.split('.').length === 3)) {
-                traces.push({
-                  channel: 'body',
-                  key: k,
-                  preview: maskSecret(v),
-                  rawValue: v,
-                  jwtDecoded: tryDecodeJwt(v),
-                });
-              }
-            });
-          } catch {
-            // ignore
+          };
+          walk(parsed);
+        } catch {
+          // URLSearchParams body
+          if (reqBody.includes('=')) {
+            try {
+              const sp = new URLSearchParams(reqBody);
+              sp.forEach((rawV, rawK) => {
+                const k = String(rawK ?? '');
+                const v = String(rawV ?? '');
+                if (TOKEN_KEY_RE.test(k) || (v.startsWith('eyJ') && v.split('.').length === 3)) {
+                  traces.push({
+                    channel: 'body',
+                    key: k,
+                    preview: maskSecret(v),
+                    rawValue: v,
+                    jwtDecoded: tryDecodeJwt(v),
+                  });
+                }
+              });
+            } catch {
+              // ignore
+            }
           }
         }
       }
-    }
 
-    // 4. Cookies
-    const cookieEntries = Object.entries(cookies);
-    for (const [k, v] of cookieEntries) {
-      if (TOKEN_KEY_RE.test(k) || (v.startsWith('eyJ') && v.split('.').length === 3)) {
+      // 4. Cookies
+      const cookieEntries = Object.entries(cookies || {});
+      for (const [rawK, rawV] of cookieEntries) {
+        const k = String(rawK ?? '');
+        const v = String(rawV ?? '');
+        if (TOKEN_KEY_RE.test(k) || (v.startsWith('eyJ') && v.split('.').length === 3)) {
+          traces.push({
+            channel: 'cookie',
+            key: k,
+            preview: maskSecret(v),
+            rawValue: v,
+            jwtDecoded: tryDecodeJwt(v),
+          });
+        }
+      }
+      if (
+        credentials === 'include' &&
+        !traces.some((t) => t.channel === 'cookie')
+      ) {
         traces.push({
           channel: 'cookie',
-          key: k,
-          preview: maskSecret(v),
-          rawValue: v,
-          jwtDecoded: tryDecodeJwt(v),
+          key: 'credentials: include',
+          preview: cookieEntries.length
+            ? `${cookieEntries.length} cookie + HttpOnly`
+            : 'HttpOnly / cross-origin cookies',
         });
       }
-    }
-    if (
-      credentials === 'include' &&
-      !traces.some((t) => t.channel === 'cookie')
-    ) {
-      traces.push({
-        channel: 'cookie',
-        key: 'credentials: include',
-        preview: cookieEntries.length
-          ? `${cookieEntries.length} cookie + HttpOnly`
-          : 'HttpOnly / cross-origin cookies',
-      });
+    } catch {
+      // Never throw into host page
     }
 
     return traces;
@@ -226,99 +241,109 @@ import {
     cookies: Record<string, string>
   ): OutgoingField[] {
     const fields: OutgoingField[] = [];
-
-    // 1. Query Params
-    for (const [k, v] of Object.entries(queryParams)) {
-      fields.push({
-        channel: 'query',
-        key: k,
-        value: v,
-        valueType: 'string',
-      });
-    }
-
-    // 2. Request Body (JSON, URLSearchParams, FormData, or Raw)
-    if (reqBody && reqBody.trim()) {
-      let parsedJson = false;
-      try {
-        const parsed = JSON.parse(reqBody);
-        parsedJson = true;
-        const flatten = (val: unknown, path: string, depth: number) => {
-          if (fields.length > 60) return;
-          if (val === null) {
-            fields.push({
-              channel: 'body',
-              key: path || '(root)',
-              value: 'null',
-              valueType: 'null',
-            });
-            return;
-          }
-          if (Array.isArray(val)) {
-            if (val.length === 0 || depth >= 3) {
-              fields.push({
-                channel: 'body',
-                key: path || '(array)',
-                value: JSON.stringify(val),
-                valueType: 'array',
-              });
-            } else {
-              val.slice(0, 15).forEach((item, idx) => {
-                flatten(item, `${path}[${idx}]`, depth + 1);
-              });
-            }
-            return;
-          }
-          if (typeof val === 'object') {
-            const entries = Object.entries(val as Record<string, unknown>);
-            if (entries.length === 0 || depth >= 3) {
-              fields.push({
-                channel: 'body',
-                key: path || '(object)',
-                value: JSON.stringify(val),
-                valueType: 'object',
-              });
-            } else {
-              for (const [k, v] of entries) {
-                flatten(v, path ? `${path}.${k}` : k, depth + 1);
-              }
-            }
-            return;
-          }
-          const t = typeof val;
-          const vType: OutgoingValueType =
-            t === 'number'
-              ? 'number'
-              : t === 'boolean'
-              ? 'boolean'
-              : 'string';
-          fields.push({
-            channel: 'body',
-            key: path || '(value)',
-            value: String(val),
-            valueType: vType,
-          });
-        };
-        flatten(parsed, '', 0);
-      } catch {
-        parsedJson = false;
+    try {
+      // 1. Query Params
+      for (const [rawK, rawV] of Object.entries(queryParams || {})) {
+        fields.push({
+          channel: 'query',
+          key: String(rawK ?? ''),
+          value: String(rawV ?? ''),
+          valueType: 'string',
+        });
       }
 
-      if (!parsedJson) {
-        if (reqBody.includes('=') && !reqBody.trim().startsWith('<')) {
-          try {
-            const sp = new URLSearchParams(reqBody);
-            let added = false;
-            sp.forEach((v, k) => {
-              added = true;
+      // 2. Request Body (JSON, URLSearchParams, FormData, or Raw)
+      if (typeof reqBody === 'string' && reqBody.trim()) {
+        let parsedJson = false;
+        try {
+          const parsed = JSON.parse(reqBody);
+          parsedJson = true;
+          const flatten = (val: unknown, path: string, depth: number) => {
+            if (fields.length > 60) return;
+            if (val === null) {
               fields.push({
                 channel: 'body',
-                key: k,
-                value: v,
-                valueType: v.startsWith('[File') ? 'file' : 'string',
+                key: path || '(root)',
+                value: 'null',
+                valueType: 'null',
               });
+              return;
+            }
+            if (Array.isArray(val)) {
+              if (val.length === 0 || depth >= 3) {
+                fields.push({
+                  channel: 'body',
+                  key: path || '(array)',
+                  value: JSON.stringify(val),
+                  valueType: 'array',
+                });
+              } else {
+                val.slice(0, 15).forEach((item, idx) => {
+                  flatten(item, `${path}[${idx}]`, depth + 1);
+                });
+              }
+              return;
+            }
+            if (typeof val === 'object') {
+              const entries = Object.entries(val as Record<string, unknown>);
+              if (entries.length === 0 || depth >= 3) {
+                fields.push({
+                  channel: 'body',
+                  key: path || '(object)',
+                  value: JSON.stringify(val),
+                  valueType: 'object',
+                });
+              } else {
+                for (const [k, v] of entries) {
+                  flatten(v, path ? `${path}.${k}` : k, depth + 1);
+                }
+              }
+              return;
+            }
+            const t = typeof val;
+            const vType: OutgoingValueType =
+              t === 'number'
+                ? 'number'
+                : t === 'boolean'
+                ? 'boolean'
+                : 'string';
+            fields.push({
+              channel: 'body',
+              key: path || '(value)',
+              value: String(val),
+              valueType: vType,
             });
-            if (!added) {
+          };
+          flatten(parsed, '', 0);
+        } catch {
+          parsedJson = false;
+        }
+
+        if (!parsedJson) {
+          if (reqBody.includes('=') && !reqBody.trim().startsWith('<')) {
+            try {
+              const sp = new URLSearchParams(reqBody);
+              let added = false;
+              sp.forEach((rawV, rawK) => {
+                const k = String(rawK ?? '');
+                const v = String(rawV ?? '');
+                added = true;
+                fields.push({
+                  channel: 'body',
+                  key: k,
+                  value: v,
+                  valueType: v.startsWith('[File') ? 'file' : 'string',
+                });
+              });
+              if (!added) {
+                fields.push({
+                  channel: 'body',
+                  key: '(raw)',
+                  value: reqBody.slice(0, 500),
+                  valueType: 'string',
+                });
+              }
+            } catch {
               fields.push({
                 channel: 'body',
                 key: '(raw)',
@@ -326,7 +351,7 @@ import {
                 valueType: 'string',
               });
             }
-          } catch {
+          } else {
             fields.push({
               channel: 'body',
               key: '(raw)',
@@ -334,52 +359,49 @@ import {
               valueType: 'string',
             });
           }
-        } else {
+        }
+      }
+
+      // 3. Custom / Auth / Important Request Headers
+      const noisyHeaders = new Set([
+        'accept',
+        'accept-language',
+        'accept-encoding',
+        'user-agent',
+        'sec-ch-ua',
+        'sec-ch-ua-mobile',
+        'sec-ch-ua-platform',
+        'sec-fetch-dest',
+        'sec-fetch-mode',
+        'sec-fetch-site',
+        'connection',
+        'cache-control',
+        'pragma',
+      ]);
+      for (const [rawK, rawV] of Object.entries(reqHeaders || {})) {
+        const k = String(rawK ?? '');
+        const v = String(rawV ?? '');
+        if (!noisyHeaders.has(k.toLowerCase())) {
           fields.push({
-            channel: 'body',
-            key: '(raw)',
-            value: reqBody.slice(0, 500),
+            channel: 'header',
+            key: k,
+            value: v,
             valueType: 'string',
           });
         }
       }
-    }
 
-    // 3. Custom / Auth / Important Request Headers
-    const noisyHeaders = new Set([
-      'accept',
-      'accept-language',
-      'accept-encoding',
-      'user-agent',
-      'sec-ch-ua',
-      'sec-ch-ua-mobile',
-      'sec-ch-ua-platform',
-      'sec-fetch-dest',
-      'sec-fetch-mode',
-      'sec-fetch-site',
-      'connection',
-      'cache-control',
-      'pragma',
-    ]);
-    for (const [k, v] of Object.entries(reqHeaders)) {
-      if (!noisyHeaders.has(k.toLowerCase())) {
+      // 4. Cookies
+      for (const [rawK, rawV] of Object.entries(cookies || {})) {
         fields.push({
-          channel: 'header',
-          key: k,
-          value: v,
+          channel: 'cookie',
+          key: String(rawK ?? ''),
+          value: String(rawV ?? ''),
           valueType: 'string',
         });
       }
-    }
-
-    // 4. Cookies
-    for (const [k, v] of Object.entries(cookies)) {
-      fields.push({
-        channel: 'cookie',
-        key: k,
-        value: v,
-        valueType: 'string',
-      });
+    } catch {
+      // Never throw into host page
     }
 
     return fields;
@@ -392,9 +414,9 @@ import {
   } {
     const queryParams: Record<string, string> = {};
     try {
-      const u = new URL(rawUrl, window.location.href);
+      const u = new URL(String(rawUrl ?? ''), window.location.href);
       u.searchParams.forEach((v, k) => {
-        queryParams[k] = v;
+        queryParams[String(k)] = String(v ?? '');
       });
       return {
         targetHost: u.host,
@@ -402,7 +424,7 @@ import {
         queryParams,
       };
     } catch {
-      return { targetHost: '', pathname: rawUrl, queryParams };
+      return { targetHost: '', pathname: String(rawUrl ?? ''), queryParams };
     }
   }
 
@@ -412,7 +434,7 @@ import {
     try {
       const h = headers instanceof Headers ? headers : new Headers(headers);
       h.forEach((value, key) => {
-        out[key] = value;
+        out[String(key)] = String(value ?? '');
       });
     } catch {
       // ignore
@@ -425,9 +447,9 @@ import {
     target: string
   ): string | undefined {
     if (!headers) return undefined;
-    const lower = target.toLowerCase();
+    const lower = String(target ?? '').toLowerCase();
     for (const [k, v] of Object.entries(headers)) {
-      if (k.toLowerCase() === lower) return v;
+      if (String(k ?? '').toLowerCase() === lower) return String(v ?? '');
     }
     return undefined;
   }
@@ -449,76 +471,97 @@ import {
     responseBody?: string;
     credentials?: string;
   }) {
-    const { targetHost, pathname, queryParams } = parseUrlParts(entry.url);
-    const reqHeaders = entry.requestHeaders || {};
-    const resHeaders = entry.responseHeaders || {};
-    const creds = entry.credentials || 'same-origin';
-    const isSameOrigin =
-      !targetHost || targetHost === window.location.host;
-    const cookies =
-      creds === 'include' || (creds === 'same-origin' && isSameOrigin)
-        ? parseDocumentCookies()
-        : {};
-    const tokens = detectTokens(
-      reqHeaders,
-      queryParams,
-      entry.requestBody,
-      cookies,
-      creds
-    );
-    const outgoingFields = extractOutgoingFields(
-      queryParams,
-      entry.requestBody,
-      reqHeaders,
-      cookies
-    );
-    const contentType = getHeaderCaseInsensitive(reqHeaders, 'content-type');
-    const responseContentType = getHeaderCaseInsensitive(
-      resHeaders,
-      'content-type'
-    );
+    try {
+      const safeUrl = String(entry.url ?? '');
+      const { targetHost, pathname, queryParams } = parseUrlParts(safeUrl);
+      const reqHeaders: Record<string, string> = {};
+      for (const [k, v] of Object.entries(entry.requestHeaders || {})) {
+        reqHeaders[String(k)] = String(v ?? '');
+      }
+      const resHeaders: Record<string, string> = {};
+      for (const [k, v] of Object.entries(entry.responseHeaders || {})) {
+        resHeaders[String(k)] = String(v ?? '');
+      }
+      const creds = String(entry.credentials || 'same-origin');
+      const isSameOrigin =
+        !targetHost || targetHost === window.location.host;
+      const cookies =
+        creds === 'include' || (creds === 'same-origin' && isSameOrigin)
+          ? parseDocumentCookies()
+          : {};
+      const safeReqBody =
+        typeof entry.requestBody === 'string'
+          ? entry.requestBody
+          : entry.requestBody != null
+          ? String(entry.requestBody)
+          : undefined;
+      const tokens = detectTokens(
+        reqHeaders,
+        queryParams,
+        safeReqBody,
+        cookies,
+        creds
+      );
+      const outgoingFields = extractOutgoingFields(
+        queryParams,
+        safeReqBody,
+        reqHeaders,
+        cookies
+      );
+      const contentType = getHeaderCaseInsensitive(reqHeaders, 'content-type');
+      const responseContentType = getHeaderCaseInsensitive(
+        resHeaders,
+        'content-type'
+      );
 
-    window.postMessage(
-      {
-        source: 'DEV_MANIPULATOR_INJECTED',
-        type: 'LOG_INTERCEPT',
-        entry: {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          timestamp: Date.now(),
-          ...entry,
-          transport: entry.transport || 'fetch',
-          method: (entry.method || 'GET').toUpperCase(),
-          pageUrl: window.location.href,
-          pageOrigin: window.location.origin,
-          targetHost,
-          pathname,
-          contentType,
-          responseContentType,
-          queryParams: Object.keys(queryParams).length ? queryParams : undefined,
-          cookies: Object.keys(cookies).length ? cookies : undefined,
-          outgoingFields: outgoingFields.length ? outgoingFields : undefined,
-          requestBody: cap(entry.requestBody),
-          originalRequestBody:
-            entry.originalRequestBody &&
-            entry.originalRequestBody !== entry.requestBody
-              ? cap(entry.originalRequestBody)
-              : undefined,
-          responseBody: cap(entry.responseBody),
-          tokens: tokens.length ? tokens : undefined,
+      window.postMessage(
+        {
+          source: 'DEV_MANIPULATOR_INJECTED',
+          type: 'LOG_INTERCEPT',
+          entry: {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            timestamp: Date.now(),
+            ...entry,
+            url: safeUrl,
+            requestHeaders: reqHeaders,
+            responseHeaders: resHeaders,
+            transport: entry.transport || 'fetch',
+            method: String(entry.method || 'GET').toUpperCase(),
+            pageUrl: window.location.href,
+            pageOrigin: window.location.origin,
+            targetHost,
+            pathname,
+            contentType,
+            responseContentType,
+            queryParams: Object.keys(queryParams).length ? queryParams : undefined,
+            cookies: Object.keys(cookies).length ? cookies : undefined,
+            outgoingFields: outgoingFields.length ? outgoingFields : undefined,
+            requestBody: cap(safeReqBody),
+            originalRequestBody:
+              entry.originalRequestBody &&
+              entry.originalRequestBody !== safeReqBody
+                ? cap(entry.originalRequestBody)
+                : undefined,
+            responseBody: cap(entry.responseBody),
+            tokens: tokens.length ? tokens : undefined,
+          },
         },
-      },
-      '*'
-    );
+        '*'
+      );
+    } catch {
+      // Never throw into host page
+    }
   }
 
   function matchesUrl(url: string, pattern: string, isRegex?: boolean): boolean {
-    const cleanPattern = (pattern || '').trim();
+    const safeUrl = String(url ?? '');
+    const cleanPattern = String(pattern ?? '').trim();
     if (!cleanPattern || cleanPattern === '*' || cleanPattern === '<all_urls>') {
       return true;
     }
     if (isRegex) {
       try {
-        return new RegExp(cleanPattern, 'i').test(url);
+        return new RegExp(cleanPattern, 'i').test(safeUrl);
       } catch {
         return false;
       }
@@ -528,20 +571,20 @@ import {
         .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
         .replace(/\*/g, '.*');
       try {
-        return new RegExp(escaped, 'i').test(url);
+        return new RegExp(escaped, 'i').test(safeUrl);
       } catch {
-        return url.includes(cleanPattern.replace(/\*/g, ''));
+        return safeUrl.includes(cleanPattern.replace(/\*/g, ''));
       }
     }
-    return url.toLowerCase().includes(cleanPattern.toLowerCase());
+    return safeUrl.toLowerCase().includes(cleanPattern.toLowerCase());
   }
 
   function getMatchingBodyRules(url: string, method: string): BodyRule[] {
     const profile = getActiveProfile();
-    if (!profile) return [];
-    const upperMethod = (method || 'GET').toUpperCase();
+    if (!profile || !Array.isArray(profile.bodyRules)) return [];
+    const upperMethod = String(method || 'GET').toUpperCase();
     return profile.bodyRules.filter((rule) => {
-      if (!rule.enabled || !rule.urlPattern.trim()) return false;
+      if (!rule?.enabled || !String(rule.urlPattern ?? '').trim()) return false;
       if (rule.method !== 'ALL' && rule.method !== upperMethod) return false;
       return matchesUrl(url, rule.urlPattern, rule.isRegex);
     });
@@ -557,17 +600,21 @@ import {
 
     const tp = profile.telepresence;
     if (tp && tp.enabled && matchesUrl(url, tp.targetDomainFilter)) {
-      if (tp.interceptId.trim()) {
+      const interceptId = String(tp.interceptId ?? '').trim();
+      const baggageHeader = String(tp.baggageHeader ?? '').trim();
+      const customHeaderName = String(tp.customHeaderName ?? '').trim();
+      const customHeaderValue = String(tp.customHeaderValue ?? '').trim();
+      if (interceptId) {
         result.push({
           name: 'x-telepresence-intercept-id',
-          value: tp.interceptId.trim(),
+          value: interceptId,
           op: 'set',
           label: 'Telepresence Intercept ID',
         });
         if (tp.propagateBaggage) {
-          const baggageVal = tp.baggageHeader.trim()
-            ? tp.baggageHeader.trim()
-            : `telepresence-intercept-id=${tp.interceptId.trim()}`;
+          const baggageVal = baggageHeader
+            ? baggageHeader
+            : `telepresence-intercept-id=${interceptId}`;
           result.push({
             name: 'baggage',
             value: baggageVal,
@@ -575,20 +622,20 @@ import {
             label: 'Telepresence Baggage',
           });
         }
-      } else if (tp.baggageHeader.trim()) {
+      } else if (baggageHeader) {
         result.push({
           name: 'baggage',
-          value: tp.baggageHeader.trim(),
+          value: baggageHeader,
           op: 'set',
           label: 'Telepresence Baggage',
         });
       }
-      if (tp.customHeaderName.trim() && tp.customHeaderValue.trim()) {
+      if (customHeaderName && customHeaderValue) {
         result.push({
-          name: tp.customHeaderName.trim(),
-          value: tp.customHeaderValue.trim(),
+          name: customHeaderName,
+          value: customHeaderValue,
           op: 'set',
-          label: `Context (${tp.customHeaderName.trim()})`,
+          label: `Context (${customHeaderName})`,
         });
       }
       if (tp.envoyForceTrace) {
@@ -601,15 +648,16 @@ import {
       }
     }
 
-    for (const hRule of profile.headerRules as HeaderRule[]) {
-      if (!hRule.enabled || hRule.target !== 'request' || !hRule.name.trim()) continue;
-      if (blocked.has(hRule.name.trim().toLowerCase())) continue;
+    for (const hRule of (profile.headerRules || []) as HeaderRule[]) {
+      const ruleName = String(hRule?.name ?? '').trim();
+      if (!hRule?.enabled || hRule.target !== 'request' || !ruleName) continue;
+      if (blocked.has(ruleName.toLowerCase())) continue;
       if (matchesUrl(url, hRule.urlFilter)) {
         result.push({
-          name: hRule.name.trim(),
-          value: hRule.value,
+          name: ruleName,
+          value: String(hRule.value ?? ''),
           op: hRule.operation,
-          label: hRule.name.trim(),
+          label: ruleName,
         });
       }
     }
@@ -953,18 +1001,22 @@ import {
       username?: string | null,
       password?: string | null
     ): void {
-      this._method = (method || 'GET').toUpperCase();
+      this._method = String(method || 'GET').toUpperCase();
       this._reqHeaders = {};
       try {
-        this._url = new URL(String(url), window.location.href).href;
+        this._url = new URL(String(url ?? ''), window.location.href).href;
       } catch {
-        this._url = String(url);
+        this._url = String(url ?? '');
       }
       super.open(method, url, async, username, password);
     }
 
     setRequestHeader(name: string, value: string): void {
-      this._reqHeaders[name] = value;
+      try {
+        this._reqHeaders[String(name ?? '')] = String(value ?? '');
+      } catch {
+        // ignore
+      }
       super.setRequestHeader(name, value);
     }
 
