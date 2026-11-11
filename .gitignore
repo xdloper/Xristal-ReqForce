@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Local-only Store Submission assets & packages (Chrome, Edge, Firefox stores)
+store-submission/
+
 # Environment & OS files
 .DS_Store
 *.log
