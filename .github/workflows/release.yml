@@ -4,13 +4,14 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   release:
-    name: Package & Publish Release
+    name: Build & Publish Browser Packages
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -27,31 +28,30 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build extension
+      - name: Typecheck & Build (dist/chrome, dist/edge, dist/firefox)
         run: npm run build
 
-      - name: Package Chrome / Edge & Firefox archives
+      - name: Package browser archives inside dist/releases/
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          cd dist
+          mkdir -p dist/releases
+          (cd dist/chrome && zip -r "../releases/http-interceptor-${VERSION}-chrome.zip" .)
+          (cd dist/edge && zip -r "../releases/http-interceptor-${VERSION}-edge.zip" .)
+          (cd dist/firefox && zip -r "../releases/http-interceptor-${VERSION}-firefox.zip" .)
 
-          # Universal / Firefox bundle
-          zip -r "../http-interceptor-v${VERSION}-firefox.zip" .
-
-          # Chrome / Edge bundle (strip Firefox-only background.scripts warning)
-          node -e '
-            const fs = require("fs");
-            const m = JSON.parse(fs.readFileSync("manifest.json", "utf8"));
-            delete m.background.scripts;
-            delete m.browser_specific_settings;
-            fs.writeFileSync("manifest.json", JSON.stringify(m, null, 2));
-          '
-          zip -r "../http-interceptor-v${VERSION}-chromium.zip" .
+      - name: Upload release archives artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-releases
+          path: dist/releases/*.zip
+          retention-days: 30
 
       - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: |
-            http-interceptor-*-chromium.zip
-            http-interceptor-*-firefox.zip
+            dist/releases/http-interceptor-*-chrome.zip
+            dist/releases/http-interceptor-*-edge.zip
+            dist/releases/http-interceptor-*-firefox.zip

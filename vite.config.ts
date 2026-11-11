@@ -5,7 +5,7 @@ import { resolve } from 'path';
 export default defineConfig({
   plugins: [react()],
   build: {
-    outDir: 'dist',
+    outDir: 'dist/.raw',
     emptyOutDir: true,
     rollupOptions: {
       input: {
@@ -15,14 +15,14 @@ export default defineConfig({
         injected: resolve(__dirname, 'src/injected/index.ts'),
       },
       output: {
-        entryFileNames: (chunkInfo) => {
-          if (['background', 'content', 'injected'].includes(chunkInfo.name)) {
-            return `[name].js`;
+        entryFileNames: 'scripts/[name].js',
+        chunkFileNames: 'scripts/[name].js',
+        assetFileNames: (assetInfo) => {
+          if (assetInfo.name && assetInfo.name.endsWith('.css')) {
+            return 'styles/popup.css';
           }
-          return 'assets/[name]-[hash].js';
+          return 'assets/[name].[ext]';
         },
-        chunkFileNames: 'assets/[name]-[hash].js',
-        assetFileNames: 'assets/[name]-[hash].[ext]',
       },
     },
   },

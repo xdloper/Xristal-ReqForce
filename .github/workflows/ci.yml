@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   build:
-    name: Typecheck & Build
+    name: Typecheck & Build Matrix
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -32,20 +32,38 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
-      - name: Build extension
+      - name: Build browser folders (dist/chrome, dist/edge, dist/firefox)
         run: npm run build
 
-      - name: Verify build output
+      - name: Verify dist directory structure
         run: |
-          test -f dist/manifest.json
-          test -f dist/background.js
-          test -f dist/content.js
-          test -f dist/injected.js
-          test -f dist/index.html
+          for target in chrome edge firefox; do
+            test -f "dist/${target}/manifest.json"
+            test -f "dist/${target}/index.html"
+            test -f "dist/${target}/scripts/background.js"
+            test -f "dist/${target}/scripts/content.js"
+            test -f "dist/${target}/scripts/injected.js"
+            test -f "dist/${target}/scripts/popup.js"
+            test -f "dist/${target}/styles/popup.css"
+          done
 
-      - name: Upload extension artifact
+      - name: Upload Chrome artifact
         uses: actions/upload-artifact@v4
         with:
-          name: http-interceptor-dist
-          path: dist/
+          name: dist-chrome
+          path: dist/chrome/
+          retention-days: 14
+
+      - name: Upload Edge artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-edge
+          path: dist/edge/
+          retention-days: 14
+
+      - name: Upload Firefox artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-firefox
+          path: dist/firefox/
           retention-days: 14

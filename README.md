@@ -1,5 +1,9 @@
 # HTTP Interceptor & Telepresence
 
+[![CI](https://github.com/xdloper/dev-browser-manipulations/actions/workflows/ci.yml/badge.svg)](https://github.com/xdloper/dev-browser-manipulations/actions/workflows/ci.yml)
+[![Release](https://github.com/xdloper/dev-browser-manipulations/actions/workflows/release.yml/badge.svg)](https://github.com/xdloper/dev-browser-manipulations/actions/workflows/release.yml)
+[![GitHub release](https://img.shields.io/github/v/release/xdloper/dev-browser-manipulations)](https://github.com/xdloper/dev-browser-manipulations/releases)
+
 A lightweight Manifest V3 browser extension for Chrome, Edge, Brave, and Firefox to manipulate HTTP headers, mutate `fetch` / `XMLHttpRequest` bodies, bypass CORS restrictions, and route traffic through Kubernetes Telepresence intercepts.
 
 Built because many legacy header extensions were removed from browser stores or migrated behind paywalls and telemetry trackers. This project runs entirely locally with zero external network calls.
@@ -26,6 +30,37 @@ Built because many legacy header extensions were removed from browser stores or 
 
 ---
 
+## Build Output Structure (`dist/`)
+
+Pre-built bundles for each browser are organized cleanly under `dist/`:
+
+```text
+dist/
+├── chrome/
+│   ├── index.html
+│   ├── manifest.json
+│   ├── scripts/
+│   │   ├── background.js
+│   │   ├── browser.js
+│   │   ├── content.js
+│   │   ├── injected.js
+│   │   └── popup.js
+│   └── styles/
+│       └── popup.css
+├── edge/
+│   ├── index.html
+│   ├── manifest.json
+│   ├── scripts/
+│   └── styles/
+└── firefox/
+    ├── index.html
+    ├── manifest.json
+    ├── scripts/
+    └── styles/
+```
+
+---
+
 ## Architecture
 
 | Layer | File | Responsibility |
@@ -47,15 +82,13 @@ Built because many legacy header extensions were removed from browser stores or 
 ### Build from Source
 
 ```bash
-git clone https://github.com/<your-username>/dev-browser-manipulations.git
+git clone https://github.com/xdloper/dev-browser-manipulations.git
 cd dev-browser-manipulations
 npm install
 npm run build
 ```
 
-The production extension bundle is emitted to the `dist/` directory.
-
-For active development with hot rebuilds:
+For active development:
 
 ```bash
 npm run dev
@@ -65,18 +98,27 @@ npm run dev
 
 ## Installation
 
-### Chrome / Edge / Brave
+You can either download the latest `.zip` archive from [GitHub Releases](https://github.com/xdloper/dev-browser-manipulations/releases) or load directly from `dist/`:
 
-1. Open `chrome://extensions` (or `edge://extensions`).
+### Google Chrome / Brave
+
+1. Open `chrome://extensions`.
 2. Enable **Developer mode** in the top-right corner.
 3. Click **Load unpacked**.
-4. Select the `dist/` folder inside this repository.
+4. Select `dist/chrome`.
 
-### Firefox
+### Microsoft Edge
+
+1. Open `edge://extensions`.
+2. Enable **Developer mode**.
+3. Click **Load unpacked**.
+4. Select `dist/edge`.
+
+### Mozilla Firefox
 
 1. Open `about:debugging#/runtime/this-firefox`.
 2. Click **Load Temporary Add-on...**.
-3. Select `dist/manifest.json`.
+3. Select `dist/firefox/manifest.json`.
 
 ---
 

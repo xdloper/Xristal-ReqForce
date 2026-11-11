@@ -9,7 +9,7 @@ function injectInterceptorScript() {
     if (!container) return;
 
     const script = document.createElement('script');
-    script.src = extApi.runtime.getURL('injected.js');
+    script.src = extApi.runtime.getURL('scripts/injected.js');
     script.dataset.devManipulator = 'true';
     script.onload = () => {
       script.remove();
