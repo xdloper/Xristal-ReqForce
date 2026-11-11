@@ -698,6 +698,25 @@ import {
         return false;
       }
     }
+    // Support subdomain-flexible host matching when pattern is *://www.domain.com/* or *://domain.com/*
+    const hostPatternMatch = cleanPattern.match(/^(?:\*|https?):\/\/([^/]+)\/\*$/i);
+    if (hostPatternMatch) {
+      try {
+        const reqHost = new URL(safeUrl).hostname.toLowerCase();
+        const patHost = hostPatternMatch[1].toLowerCase().replace(/^\*\./, '');
+        const barePatHost = patHost.replace(/^www\./, '');
+        const bareReqHost = reqHost.replace(/^www\./, '');
+        if (
+          reqHost === patHost ||
+          bareReqHost === barePatHost ||
+          reqHost.endsWith(`.${barePatHost}`)
+        ) {
+          return true;
+        }
+      } catch {
+        // fallback to wildcard regex
+      }
+    }
     if (cleanPattern.includes('*')) {
       const escaped = cleanPattern
         .replace(/[.+?^${}()|[\]\\]/g, '\\$&')

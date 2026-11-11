@@ -190,7 +190,8 @@ export default function App() {
           if (tab?.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://'))) {
             try {
               const u = new URL(tab.url);
-              setActiveDomainPattern(`*://${u.hostname}/*`);
+              const bareHost = u.hostname.replace(/^www\./i, '');
+              setActiveDomainPattern(`*://*.${bareHost}/*`);
             } catch {
               // ignore
             }

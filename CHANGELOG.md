@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.5] - 2026-11-12
+
+### Fixed
+- **Subdomain & Root Domain Matching for `Pin Domain` (`*://www.domain.com/*`)**: Pinning a domain like `www.google.com` or `github.com` now matches both the root domain (`google.com`) and all API subdomains (`*.google.com`, `api.github.com`) across both `declarativeNetRequest` (`||domain/`) and `scripts/injected.js`.
+- **Reliable Background Rule Sync**: Added a `chrome.storage.onChanged` listener in `background.js` so toggling **ACTIVE / PAUSED** or editing header rules always updates dynamic DNR rules and open tabs even if the popup closes immediately.
+
 ## [1.8.4] - 2026-11-12
 
 ### Fixed

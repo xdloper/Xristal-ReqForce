@@ -104,6 +104,12 @@ function normalizeUrlFilter(filter: string): string {
   if (!trimmed || trimmed === '*' || trimmed === '<all_urls>') {
     return '*';
   }
+  // Convert *://www.example.com/* or *://*.example.com/* into DNR domain anchor ||example.com/
+  // so subdomains (api.example.com, ogads-pa.clients6.google.com, etc.) and root domain all match reliably
+  const hostMatch = trimmed.match(/^(?:\*|https?):\/\/(?:\*\.)?(?:www\.)?([a-zA-Z0-9.-]+)\/\*$/i);
+  if (hostMatch?.[1] && !hostMatch[1].includes('*')) {
+    return `||${hostMatch[1]}/`;
+  }
   return trimmed;
 }
 
@@ -512,4 +518,21 @@ extApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   return false;
+});
+
+extApi.storage?.onChanged?.addListener((changes, area) => {
+  if (area === 'local' && changes.devManipulatorState?.newValue) {
+    const prev = changes.devManipulatorState.oldValue as ExtensionState | undefined;
+    const next = changes.devManipulatorState.newValue as ExtensionState;
+    // Only re-sync DNR & tab rules when rules or globalEnabled changed (ignore pure log appends)
+    if (
+      !prev ||
+      prev.globalEnabled !== next.globalEnabled ||
+      prev.activeProfileId !== next.activeProfileId ||
+      prev.trafficMonitorEnabled !== next.trafficMonitorEnabled ||
+      JSON.stringify(prev.profiles) !== JSON.stringify(next.profiles)
+    ) {
+      void syncAllRules(next);
+    }
+  }
 });
