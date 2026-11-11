@@ -748,12 +748,12 @@ export default function App() {
           <button
             onClick={() => setShowVarsModal(true)}
             title={t.varsModalTitle}
-            className="h-7 px-2.5 rounded-md flex items-center gap-1.5 text-[11px] font-mono-code font-medium text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-colors"
+            className="h-7 px-2.5 rounded-md flex items-center gap-1.5 text-[11px] font-medium text-rf-3 hover:text-rf-1 bg-rf-input hover:bg-rf-hover border border-rf-border transition-colors"
           >
             <span>{t.varsButton}</span>
             {activeProfile.variables &&
               activeProfile.variables.filter((v) => v.enabled && v.key.trim()).length > 0 && (
-                <span className="px-1 rounded bg-amber-500/25 text-[10px]">
+                <span className="px-1 rounded bg-blue-500/20 text-blue-300 text-[10px] font-mono-code">
                   {activeProfile.variables.filter((v) => v.enabled && v.key.trim()).length}
                 </span>
               )}

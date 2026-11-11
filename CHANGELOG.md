@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.4] - 2026-11-12
+
+### Fixed
+- **State Persistence on Popup Close**: `saveExtensionState` now writes directly to `chrome.storage.local` before notifying the background service worker, ensuring that toggling **ACTIVE / PAUSED** or editing rules is never lost when the popup closes immediately.
+- **Clean `Variables` Button**: Removed the `{{x}}` prefix and matched the `Variables` / `Değişkenler` button styling with the top bar.
+
 ## [1.8.3] - 2026-11-11
 
 ### Added

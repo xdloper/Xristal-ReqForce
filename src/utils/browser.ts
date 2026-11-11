@@ -194,19 +194,31 @@ export async function saveExtensionState(
 ): Promise<void> {
   try {
     if (!extApi?.storage?.local) return;
+    // Always persist immediately to chrome.storage.local so closing the popup never loses state
+    const existing = await extApi.storage.local.get('devManipulatorState');
+    const prevLogs = existing?.devManipulatorState?.logs;
+    const keepExistingLogs =
+      !options?.replaceLogs &&
+      Array.isArray(prevLogs) &&
+      prevLogs.length > 0 &&
+      (!state.logs || state.logs.length < prevLogs.length);
+    const mergedState: ExtensionState = {
+      ...state,
+      logs: keepExistingLogs ? prevLogs : state.logs || [],
+    };
+    await extApi.storage.local.set({ devManipulatorState: mergedState });
+
     if (extApi.runtime?.sendMessage) {
       extApi.runtime.sendMessage(
         {
           type: 'SYNC_STATE',
-          state,
+          state: mergedState,
           replaceLogs: Boolean(options?.replaceLogs),
         },
         () => {
           void extApi.runtime?.lastError;
         }
       );
-    } else {
-      await extApi.storage.local.set({ devManipulatorState: state });
     }
   } catch {
     // Ignore
