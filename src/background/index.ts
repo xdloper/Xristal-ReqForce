@@ -50,11 +50,15 @@ const ALL_RESOURCE_TYPES: chrome.declarativeNetRequest.ResourceType[] = [
 ];
 
 function sanitizeHeaderName(name: string): string {
-  return (name || '').trim().replace(/[^a-zA-Z0-9-_]/g, '');
+  return String(name ?? '').trim().replace(/[^a-zA-Z0-9-_]/g, '');
+}
+
+function sanitizeHeaderValue(value: string): string {
+  return String(value ?? '').replace(/[\r\n]/g, '');
 }
 
 function normalizeUrlFilter(filter: string): string {
-  const trimmed = (filter || '').trim();
+  const trimmed = String(filter ?? '').trim();
   if (!trimmed || trimmed === '*' || trimmed === '<all_urls>') {
     return '*';
   }
@@ -153,7 +157,7 @@ function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule
     };
 
     if (op !== 'remove') {
-      headerInfo.value = String(hRule.value ?? '');
+      headerInfo.value = sanitizeHeaderValue(hRule.value);
     }
 
     const urlFilter = normalizeUrlFilter(hRule.urlFilter);

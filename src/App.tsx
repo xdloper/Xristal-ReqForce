@@ -210,10 +210,13 @@ export default function App() {
     setTimeout(() => setToast(null), 1800);
   };
 
-  const updateState = (updater: (prev: ExtensionState) => ExtensionState) => {
+  const updateState = (
+    updater: (prev: ExtensionState) => ExtensionState,
+    options?: { replaceLogs?: boolean }
+  ) => {
     setState((prev) => {
       const next = updater(prev);
-      saveExtensionState(next);
+      saveExtensionState(next, options);
       return next;
     });
   };
@@ -1838,7 +1841,9 @@ export default function App() {
                     <button
                       onClick={() => {
                         setSelectedLogId(null);
-                        updateState((prev) => ({ ...prev, logs: [] }));
+                        updateState((prev) => ({ ...prev, logs: [] }), {
+                          replaceLogs: true,
+                        });
                       }}
                       className="h-6 px-2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-rf-4 hover:text-red-400 text-[10px]"
                     >

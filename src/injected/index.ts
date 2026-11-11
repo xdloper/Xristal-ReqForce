@@ -703,34 +703,48 @@ import {
   }
 
   function extractInitBodyString(body?: BodyInit | Document | null): string | undefined {
-    if (!body) return undefined;
-    if (typeof body === 'string') return body;
-    if (body instanceof URLSearchParams) return body.toString();
-    if (typeof FormData !== 'undefined' && body instanceof FormData) {
-      const parts: string[] = [];
-      body.forEach((v, k) => {
-        if (typeof v === 'string') {
-          parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
-        } else {
-          const f = v as File;
-          parts.push(`${encodeURIComponent(k)}=[File:${f.name || 'blob'}(${f.size || 0}B)]`);
-        }
-      });
-      return parts.join('&');
-    }
-    if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) {
-      try {
-        return new TextDecoder().decode(body as BufferSource);
-      } catch {
-        return `[Binary ${(body as ArrayBuffer).byteLength || 0}B]`;
+    if (body == null) return undefined;
+    try {
+      if (typeof body === 'string') return body;
+      if (body instanceof URLSearchParams) return body.toString();
+      if (typeof FormData !== 'undefined' && body instanceof FormData) {
+        const parts: string[] = [];
+        body.forEach((v, k) => {
+          if (typeof v === 'string') {
+            parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+          } else {
+            const f = v as File;
+            parts.push(`${encodeURIComponent(k)}=[File:${f?.name || 'blob'}(${f?.size || 0}B)]`);
+          }
+        });
+        return parts.join('&');
       }
+      if (typeof Blob !== 'undefined' && body instanceof Blob) {
+        return `[Blob ${body.type || 'application/octet-stream'} (${body.size || 0}B)]`;
+      }
+      if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) {
+        try {
+          return new TextDecoder().decode(body as BufferSource);
+        } catch {
+          return `[Binary ${(body as ArrayBuffer).byteLength || 0}B]`;
+        }
+      }
+    } catch {
+      // ignore
     }
     return undefined;
   }
 
   async function readResponsePreview(res: Response): Promise<string | undefined> {
     try {
-      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      const ct = String(res.headers?.get('content-type') || '').toLowerCase();
+      if (ct.includes('event-stream')) {
+        return '[stream: text/event-stream]';
+      }
+      const cl = Number(res.headers?.get('content-length') || '0');
+      if (cl > 500_000) {
+        return `[large response: ${cl} bytes]`;
+      }
       if (
         ct.includes('json') ||
         ct.includes('text/') ||
@@ -747,6 +761,16 @@ import {
     }
   }
 
+  function safeResponseStatus(code: number | undefined, fallback = 200): number {
+    const n = Number(code);
+    if (Number.isInteger(n) && n >= 200 && n <= 599) return n;
+    return fallback >= 200 && fallback <= 599 ? fallback : 200;
+  }
+
+  function isNullBodyStatus(status: number): boolean {
+    return status === 204 || status === 205 || status === 304;
+  }
+
   // ============================================================================
   // FETCH — pass through untouched unless a body/header mutation is required
   // ============================================================================
@@ -758,10 +782,10 @@ import {
   ): Promise<Response> {
     const t0 = performance.now();
     const fullUrl = resolveUrl(input);
-    const method = (
+    const method = String(
       init?.method ||
-      (input instanceof Request ? input.method : 'GET') ||
-      'GET'
+        (input instanceof Request ? input.method : 'GET') ||
+        'GET'
     ).toUpperCase();
 
     let rawReqBody = extractInitBodyString(init?.body);
@@ -791,22 +815,24 @@ import {
     if (!profile) {
       const res = await originalFetch(input, init);
       if (trafficMonitorOn()) {
-        const resBody = await readResponsePreview(res);
-        emitLog({
-          type: 'TRAFFIC',
-          transport: 'fetch',
-          method,
-          url: fullUrl,
-          ruleName: 'passthrough',
-          details: `HTTP ${res.status} (paused)`,
-          status: res.status,
-          durationMs: Math.round(performance.now() - t0),
-          mutated: false,
-          requestHeaders: initHeaders,
-          responseHeaders: headersToRecord(res.headers),
-          requestBody: rawReqBody,
-          responseBody: resBody,
-          credentials: cred,
+        const elapsed = Math.round(performance.now() - t0);
+        void readResponsePreview(res).then((resBody) => {
+          emitLog({
+            type: 'TRAFFIC',
+            transport: 'fetch',
+            method,
+            url: fullUrl,
+            ruleName: 'passthrough',
+            details: `HTTP ${res.status} (paused)`,
+            status: res.status,
+            durationMs: elapsed,
+            mutated: false,
+            requestHeaders: initHeaders,
+            responseHeaders: headersToRecord(res.headers),
+            requestBody: rawReqBody,
+            responseBody: resBody,
+            credentials: cred,
+          });
         });
       }
       return res;
@@ -825,22 +851,24 @@ import {
     if (!shouldMutate) {
       const res = await originalFetch(input, init);
       if (trafficMonitorOn()) {
-        const resBody = await readResponsePreview(res);
-        emitLog({
-          type: 'TRAFFIC',
-          transport: 'fetch',
-          method,
-          url: fullUrl,
-          ruleName: '—',
-          details: `HTTP ${res.status}`,
-          status: res.status,
-          durationMs: Math.round(performance.now() - t0),
-          mutated: false,
-          requestHeaders: initHeaders,
-          responseHeaders: headersToRecord(res.headers),
-          requestBody: rawReqBody,
-          responseBody: resBody,
-          credentials: cred,
+        const elapsed = Math.round(performance.now() - t0);
+        void readResponsePreview(res).then((resBody) => {
+          emitLog({
+            type: 'TRAFFIC',
+            transport: 'fetch',
+            method,
+            url: fullUrl,
+            ruleName: '—',
+            details: `HTTP ${res.status}`,
+            status: res.status,
+            durationMs: elapsed,
+            mutated: false,
+            requestHeaders: initHeaders,
+            responseHeaders: headersToRecord(res.headers),
+            requestBody: rawReqBody,
+            responseBody: resBody,
+            credentials: cred,
+          });
         });
       }
       return res;
@@ -857,6 +885,14 @@ import {
       if (baseInit.keepalive === undefined) baseInit.keepalive = input.keepalive;
       if (baseInit.signal === undefined) baseInit.signal = input.signal;
       if (baseInit.method === undefined) baseInit.method = input.method;
+      if (
+        baseInit.body === undefined &&
+        rawReqBody !== undefined &&
+        method !== 'GET' &&
+        method !== 'HEAD'
+      ) {
+        baseInit.body = rawReqBody;
+      }
     }
 
     if (matchingHeaders.length > 0) {
@@ -864,9 +900,13 @@ import {
         init?.headers || (input instanceof Request ? input.headers : undefined)
       );
       for (const h of matchingHeaders) {
-        if (h.op === 'remove') headers.delete(h.name);
-        else if (h.op === 'append') headers.append(h.name, h.value);
-        else headers.set(h.name, h.value);
+        try {
+          if (h.op === 'remove') headers.delete(h.name);
+          else if (h.op === 'append') headers.append(h.name, h.value);
+          else headers.set(h.name, h.value);
+        } catch {
+          // Ignore invalid header name/value so fetch never crashes
+        }
       }
       baseInit.headers = headers;
     }
@@ -889,7 +929,7 @@ import {
       if (fullReplaceRule.delayMs && fullReplaceRule.delayMs > 0) {
         await sleep(fullReplaceRule.delayMs);
       }
-      const status = fullReplaceRule.statusCode || 200;
+      const status = safeResponseStatus(fullReplaceRule.statusCode, 200);
       emitLog({
         type: 'BODY_RES',
         transport: 'fetch',
@@ -906,13 +946,16 @@ import {
         responseBody: fullReplaceRule.bodyContent,
         credentials: cred,
       });
-      return new Response(fullReplaceRule.bodyContent, {
-        status,
-        headers: {
-          'Content-Type': fullReplaceRule.contentType || 'application/json',
-          'X-Manipulated-By': 'ReqForce',
-        },
-      });
+      return new Response(
+        isNullBodyStatus(status) ? null : fullReplaceRule.bodyContent,
+        {
+          status,
+          headers: {
+            'Content-Type': fullReplaceRule.contentType || 'application/json',
+            'X-Manipulated-By': 'ReqForce',
+          },
+        }
+      );
     }
 
     const fetchTarget =
@@ -923,11 +966,13 @@ import {
     if (mergeResRules.length > 0) {
       try {
         let resText = await response.clone().text();
-        let finalStatus = response.status;
+        let finalStatus = safeResponseStatus(response.status, 200);
         for (const rule of mergeResRules) {
           if (rule.delayMs && rule.delayMs > 0) await sleep(rule.delayMs);
           resText = transformBodyText(resText, rule);
-          if (rule.statusCode) finalStatus = rule.statusCode;
+          if (rule.statusCode) {
+            finalStatus = safeResponseStatus(rule.statusCode, finalStatus);
+          }
         }
         emitLog({
           type: 'BODY_RES',
@@ -948,7 +993,7 @@ import {
         });
         const resHeaders = new Headers(response.headers);
         resHeaders.set('X-Manipulated-By', 'ReqForce');
-        return new Response(resText, {
+        return new Response(isNullBodyStatus(finalStatus) ? null : resText, {
           status: finalStatus,
           statusText: response.statusText,
           headers: resHeaders,
@@ -959,24 +1004,26 @@ import {
     }
 
     if (trafficMonitorOn() || matchingHeaders.length > 0 || reqRules.length > 0) {
-      const resBody = await readResponsePreview(response);
-      emitLog({
-        type: reqRules.length > 0 ? 'BODY_REQ' : matchingHeaders.length > 0 ? 'HEADER' : 'TRAFFIC',
-        transport: 'fetch',
-        method,
-        url: fullUrl,
-        ruleName:
-          [...reqRules.map((r) => r.name || r.urlPattern), ...matchingHeaders.map((h) => h.label)].join(', ') || '—',
-        details: `HTTP ${response.status}`,
-        status: response.status,
-        durationMs: Math.round(performance.now() - t0),
-        mutated: true,
-        requestHeaders: finalReqHeaders,
-        responseHeaders: headersToRecord(response.headers),
-        requestBody: sentBodyText,
-        originalRequestBody: rawReqBody,
-        responseBody: resBody,
-        credentials: cred,
+      const elapsed = Math.round(performance.now() - t0);
+      void readResponsePreview(response).then((resBody) => {
+        emitLog({
+          type: reqRules.length > 0 ? 'BODY_REQ' : matchingHeaders.length > 0 ? 'HEADER' : 'TRAFFIC',
+          transport: 'fetch',
+          method,
+          url: fullUrl,
+          ruleName:
+            [...reqRules.map((r) => r.name || r.urlPattern), ...matchingHeaders.map((h) => h.label)].join(', ') || '—',
+          details: `HTTP ${response.status}`,
+          status: response.status,
+          durationMs: elapsed,
+          mutated: true,
+          requestHeaders: finalReqHeaders,
+          responseHeaders: headersToRecord(response.headers),
+          requestBody: sentBodyText,
+          originalRequestBody: rawReqBody,
+          responseBody: resBody,
+          credentials: cred,
+        });
       });
     }
 
@@ -993,6 +1040,78 @@ import {
     private _method = 'GET';
     private _reqHeaders: Record<string, string> = {};
     private _t0 = 0;
+    private _resRules: BodyRule[] = [];
+    private _rawBody: string | undefined = undefined;
+    private _sentText: string | undefined = undefined;
+    private _credMode = 'same-origin';
+
+    constructor() {
+      super();
+      // Register as the very first listener so response overrides happen BEFORE page onload/onreadystatechange callbacks
+      this.addEventListener('readystatechange', () => {
+        if (this.readyState !== 4 || this._resRules.length === 0) return;
+        try {
+          let currentText = '';
+          try {
+            if (!this.responseType || this.responseType === 'text') {
+              currentText = typeof super.responseText === 'string' ? super.responseText : '';
+            } else if (this.responseType === 'json' && super.response != null) {
+              currentText = JSON.stringify(super.response);
+            }
+          } catch {
+            currentText = '';
+          }
+          let modifiedText = currentText;
+          let customStatus = super.status || 200;
+          for (const rule of this._resRules) {
+            modifiedText = transformBodyText(modifiedText, rule);
+            if (rule.statusCode) {
+              customStatus = safeResponseStatus(rule.statusCode, customStatus);
+            }
+          }
+          Object.defineProperty(this, 'responseText', {
+            configurable: true,
+            get: () => modifiedText,
+          });
+          Object.defineProperty(this, 'response', {
+            configurable: true,
+            get: () => {
+              if (this.responseType === 'json') {
+                try {
+                  return JSON.parse(modifiedText);
+                } catch {
+                  return modifiedText;
+                }
+              }
+              return modifiedText;
+            },
+          });
+          Object.defineProperty(this, 'status', {
+            configurable: true,
+            get: () => customStatus,
+          });
+          emitLog({
+            type: 'BODY_RES',
+            transport: 'xhr',
+            method: this._method,
+            url: this._url,
+            ruleName: this._resRules.map((r) => r.name || r.urlPattern).join(', '),
+            details: `XHR response modified (${customStatus})`,
+            status: customStatus,
+            durationMs: Math.round(performance.now() - this._t0),
+            mutated: true,
+            requestHeaders: this._reqHeaders,
+            responseHeaders: this._parseResHeaders(),
+            requestBody: this._sentText,
+            originalRequestBody: this._rawBody,
+            responseBody: modifiedText,
+            credentials: this._credMode,
+          });
+        } catch {
+          // ignore
+        }
+      });
+    }
 
     open(
       method: string,
@@ -1003,12 +1122,17 @@ import {
     ): void {
       this._method = String(method || 'GET').toUpperCase();
       this._reqHeaders = {};
+      this._resRules = [];
       try {
         this._url = new URL(String(url ?? ''), window.location.href).href;
       } catch {
         this._url = String(url ?? '');
       }
-      super.open(method, url, async, username, password);
+      if (arguments.length <= 2) {
+        super.open(method, url);
+      } else {
+        super.open(method, url, async, username, password);
+      }
     }
 
     setRequestHeader(name: string, value: string): void {
@@ -1054,6 +1178,9 @@ import {
       this._t0 = performance.now();
       const rawBody = extractInitBodyString(body as BodyInit | Document | null);
       const credMode = this.withCredentials ? 'include' : 'same-origin';
+      this._rawBody = rawBody;
+      this._sentText = rawBody;
+      this._credMode = credMode;
       const profile = getActiveProfile();
 
       if (!profile) {
@@ -1131,69 +1258,14 @@ import {
         outgoingBody = textBody;
         sentText = textBody;
       }
+      this._sentText = sentText;
 
       const resRules = matchingBodyRules.filter(
         (r) => r.mode === 'replace_response' || r.mode === 'merge_response_json'
       );
-      if (resRules.length > 0) {
-        this.addEventListener('readystatechange', () => {
-          if (this.readyState !== 4) return;
-          try {
-            let currentText = '';
-            try {
-              currentText = typeof super.responseText === 'string' ? super.responseText : '';
-            } catch {
-              currentText = '';
-            }
-            let modifiedText = currentText;
-            let customStatus = super.status;
-            for (const rule of resRules) {
-              modifiedText = transformBodyText(modifiedText, rule);
-              if (rule.statusCode) customStatus = rule.statusCode;
-            }
-            Object.defineProperty(this, 'responseText', {
-              configurable: true,
-              get: () => modifiedText,
-            });
-            Object.defineProperty(this, 'response', {
-              configurable: true,
-              get: () => {
-                if (this.responseType === 'json') {
-                  try {
-                    return JSON.parse(modifiedText);
-                  } catch {
-                    return modifiedText;
-                  }
-                }
-                return modifiedText;
-              },
-            });
-            Object.defineProperty(this, 'status', {
-              configurable: true,
-              get: () => customStatus,
-            });
-            emitLog({
-              type: 'BODY_RES',
-              transport: 'xhr',
-              method: this._method,
-              url: this._url,
-              ruleName: resRules.map((r) => r.name || r.urlPattern).join(', '),
-              details: `XHR response modified (${customStatus})`,
-              status: customStatus,
-              durationMs: Math.round(performance.now() - this._t0),
-              mutated: true,
-              requestHeaders: this._reqHeaders,
-              responseHeaders: this._parseResHeaders(),
-              requestBody: sentText,
-              originalRequestBody: rawBody,
-              responseBody: modifiedText,
-              credentials: credMode,
-            });
-          } catch {
-            // ignore
-          }
-        });
-      } else if (trafficMonitorOn() || matchingHeaders.length > 0 || reqRules.length > 0) {
+      this._resRules = resRules;
+
+      if (resRules.length === 0 && (trafficMonitorOn() || matchingHeaders.length > 0 || reqRules.length > 0)) {
         this.addEventListener('loadend', () => {
           emitLog({
             type: reqRules.length > 0 ? 'BODY_REQ' : matchingHeaders.length > 0 ? 'HEADER' : 'TRAFFIC',

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.2] - 2026-11-11
+
+### Fixed
+- **Non-Blocking Fetch Inspection & Stream Safety**: `readResponsePreview` now runs asynchronously without delaying `window.fetch` resolution and skips open streams (`text/event-stream`) and oversized payloads (`>500 KB`) so streaming endpoints never hang.
+- **Request Object Body Preservation**: Preserved request bodies when `window.fetch(new Request(url, { method: 'POST', body }))` is mutated by header-only rules.
+- **Response Status & Null-Body Guards**: Guarded `new Response(...)` against `204` / `205` / `304` null-body status errors and out-of-range HTTP status codes.
+- **XHR Listener Ordering**: Registered XHR response override listener in `constructor()` so mutated `responseText` / `response` / `status` are applied before page `onload` / `onreadystatechange` handlers fire.
+- **Inspector Clear Persistence**: Fixed the Inspector `Clear` button so cleared logs are persisted to `storage.local` (`replaceLogs: true`).
+
 ## [1.7.1] - 2026-11-11
 
 ### Fixed
