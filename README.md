@@ -1,81 +1,86 @@
 <div align="left">
-  <img src="public/icons/logo.svg" width="52" height="52" alt="ReqForce Logo" />
+  <img src="public/icons/logo.svg" width="56" height="56" alt="ReqForce Logo" />
 </div>
 
 # ReqForce
 
 [![CI](https://github.com/xdloper/Xristal-ReqForce/actions/workflows/ci.yml/badge.svg)](https://github.com/xdloper/Xristal-ReqForce/actions/workflows/ci.yml)
-[![Release](https://github.com/xdloper/Xristal-ReqForce/actions/workflows/release.yml/badge.svg)](https://github.com/xdloper/Xristal-ReqForce/actions/workflows/release.yml)
+[![Release](https://github.com/xdloper/Xristal-ReqForce/actions/workflows/release.yml/badge.svg)](https://github.com/xdloper/Xristal-ReqForce/releases)
 [![Version](https://img.shields.io/github/v/release/xdloper/Xristal-ReqForce)](https://github.com/xdloper/Xristal-ReqForce/releases)
+[![GitHub Stars](https://img.shields.io/github/stars/xdloper/Xristal-ReqForce?style=social)](https://github.com/xdloper/Xristal-ReqForce/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
-**ReqForce** is a local-first Manifest V3 browser extension for inspecting, mutating, and mocking HTTP traffic across **Chrome**, **Edge**, **Brave**, and **Firefox**.
+**ReqForce** is a fast, local-first browser extension that shows you **what a website is sending behind the scenes** and lets you **modify headers, request/response bodies, status codes, and routing in real time** — without setting up an external proxy.
 
-It combines wire-level `declarativeNetRequest` rules with a page-context `fetch` / `XMLHttpRequest` / `sendBeacon` interceptor so you can inspect outgoing values, modify headers and JSON bodies, bypass CORS, and route requests without external proxy servers.
-
----
-
-## Core Capabilities
-
-### 1. Outgoing Value & Traffic Inspector
-- **Channel Breakdown:** See how every request leaves the page (`fetch`, `xhr`, or `beacon`), including HTTP method, status, duration, content type, and credentials mode.
-- **Flattened Key → Value View:** Automatically parses and flattens outgoing JSON payloads, `URLSearchParams`, `FormData`, URL query strings, custom headers, and cookies into a filterable `Body` / `Query` / `Header` / `Cookie` table with data types (`string`, `number`, `boolean`, `array`, `object`).
-- **Token & Auth Radar:** Detects Bearer tokens, JWTs, API keys, CSRF tokens, and session cookies across all channels and decodes JWT payloads inline.
-- **Mutation Diff & One-Click Actions:** Compare original vs. mutated request bodies side-by-side, copy any captured request as cURL, or turn a live request into a **Mock Response** or **Request Override** rule in one click.
-
-### 2. Request & Response Body Manipulation
-- **Shallow JSON Merge:** Patch specific keys inside outgoing JSON requests or incoming JSON responses while keeping the rest of the payload intact.
-- **Full Endpoint Mocking:** Return custom responses, HTTP status codes (`200`, `401`, `429`, `503`), and simulated network latency (`ms`) without hitting the backend.
-
-### 3. HTTP Header Rules
-- `Set`, `Append`, or `Remove` request and response headers (`Authorization`, `X-API-Key`, `Cache-Control`, `Content-Security-Policy`, `X-Forwarded-For`).
-- Scope rules to the active tab hostname with **Pin Domain**, or import headers and payloads directly from **Copy as cURL**.
-
-### 4. Routing, CORS & Context Propagation
-- **CORS Bypass:** Inject `Access-Control-Allow-Origin`, `Allow-Methods`, and `Allow-Headers` on matching responses.
-- **URL Redirects & Query Params:** Route production/staging URLs to `localhost` (supports regex capture groups) or append query parameters (`?debug=1`).
-- **Distributed Tracing & Mesh Headers:** Optional propagation for W3C OpenTelemetry `baggage`, `x-envoy-force-trace`, and Kubernetes `x-telepresence-intercept-id`.
+Works out of the box on **Chrome**, **Edge**, **Brave**, and **Firefox**.
 
 ---
 
-## Installation
+## What ReqForce Shows You About Any Site
 
-Download the latest packaged archive from [GitHub Releases](https://github.com/xdloper/Xristal-ReqForce/releases) or load the unpacked build from `dist/`:
+When you open the **Inspector** tab on any website, ReqForce gives you an instant X-ray of its network activity:
 
-- **Chrome / Brave:** Open `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select `dist/chrome`.
-- **Microsoft Edge:** Open `edge://extensions` → enable **Developer mode** → **Load unpacked** → select `dist/edge`.
-- **Mozilla Firefox:** Open `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on...** → select `dist/firefox/manifest.json`.
+- **How Requests Travel:** See whether requests leave via `fetch`, `xhr`, or `beacon`, which page triggered them, the target endpoint, status code, response time (`ms`), and `credentials` mode.
+- **Inside Outgoing Values (`Key → Value`):** Instead of digging through raw network logs, view every parameter sent in the **Body** (JSON, `FormData`, `URLSearchParams`), **Query String**, **Headers**, and **Cookies** in one clean, typed table (`string`, `number`, `boolean`, `array`, `object`).
+- **Token & Auth Radar + Inline JWT Decoder:** Automatically spots where a site carries authentication (`Bearer` headers, JWTs, API keys, CSRF tokens, or session cookies) and decodes JWT payloads on the spot.
+- **One-Click Actionable Traffic:** Turn any captured request into a **Mock Response**, **Request Body Override**, **Header Rule**, or **cURL command** with a single click.
 
 ---
 
-## Development & Release
+## Key Features
+
+| Feature | What It Does |
+| :--- | :--- |
+| **Outgoing & Response Inspector** | Flattens request/response fields by channel (`Body`, `Query`, `Header`, `Cookie`), decodes JWTs, and shows side-by-side **Original vs. Sent** diffs when rules mutate a payload. |
+| **JSON Merge & Endpoint Mocking** | Patch a single key inside a live JSON request/response (`Shallow Merge`) or replace the entire response with custom status codes (`200`, `401`, `429`, `503`) and artificial latency (`ms`). |
+| **HTTP Header Manipulation** | `Set`, `Append`, or `Remove` request and response headers. Includes quick templates (`Bearer`, `API Key`, `No Cache`, `Spoof IP`, `Tenant ID`, `Strip CSP`). |
+| **Pin Domain & Safe Pass-Through** | Lock rules to the active tab's domain (`*://example.com/*`) in one click. Unmatched requests pass through untouched so existing logins and cookies never break. |
+| **CORS Bypass & Localhost Routing** | Fix cross-origin errors instantly or redirect production API calls to `http://localhost:<port>` using wildcard or regex rules. |
+| **cURL Import & Workspaces** | Paste any **Copy as cURL** command from DevTools to generate rules automatically. Organize rules into separate workspaces (`Default`, `Staging`, `QA`) with JSON export/import. |
+| **Mesh & Tracing Context** | Optional propagation for W3C OpenTelemetry `baggage`, `x-envoy-force-trace`, and Kubernetes `x-telepresence-intercept-id`. |
+| **Themes & Localization** | Supports **Light / Dark / System** themes and **English / Turkish** UI out of the box. |
+
+---
+
+## Quick Installation
+
+Grab the latest `.zip` from **[GitHub Releases](https://github.com/xdloper/Xristal-ReqForce/releases)** or load directly from the `dist/` folder:
+
+1. **Chrome / Brave:** Go to `chrome://extensions` → enable **Developer mode** → click **Load unpacked** → select `dist/chrome`.
+2. **Microsoft Edge:** Go to `edge://extensions` → enable **Developer mode** → click **Load unpacked** → select `dist/edge`.
+3. **Mozilla Firefox:** Go to `about:debugging#/runtime/this-firefox` → click **Load Temporary Add-on...** → select `dist/firefox/manifest.json`.
+
+---
+
+## Development
 
 ```bash
 git clone https://github.com/xdloper/Xristal-ReqForce.git
 cd Xristal-ReqForce
 npm install
 
-# Build dist/chrome, dist/edge, and dist/firefox
+# Build all browser packages (dist/chrome, dist/edge, dist/firefox)
 npm run build
 
 # Watch mode
 npm run dev
 ```
 
-Release scripts bump the version across `package.json` and `public/manifest.json`, rebuild all browser targets in `dist/`, and push the release tag:
+---
 
-```bash
-npm run release:patch
-npm run release:minor
-npm run release:major
-```
+## Privacy First
+
+- **100% Local:** Zero telemetry, zero analytics, and no external servers. All rules, workspaces, and captured logs stay inside your browser's local storage.
+- **Master Kill-Switch:** Pause or resume all interceptions anytime from the top bar with a single click.
 
 ---
 
-## Privacy & Security
+## Support the Project ⭐
 
-- **100% Local:** No analytics, telemetry, or external network calls. All workspaces and rules are stored in `chrome.storage.local`.
-- **Zero-Touch Pass-Through:** When no rule matches a request, native `fetch` and `XMLHttpRequest` calls execute unmodified so existing site sessions and cookies remain intact.
+If **ReqForce** makes debugging APIs, inspecting tokens, or testing frontend edge cases easier for you:
+
+- Give the repository a **Star ⭐** on [GitHub](https://github.com/xdloper/Xristal-ReqForce) — it helps other developers discover the tool!
+- Found a bug or have a feature idea? Open an issue in [GitHub Issues](https://github.com/xdloper/Xristal-ReqForce/issues).
 
 ---
 
