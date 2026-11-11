@@ -25,7 +25,7 @@
 | **Query String Mutation** | Network (`queryTransform`) | Automatically append or overwrite URL query parameters (e.g., `?debug=1`, `?version=canary`) across matching requests. |
 | **Mesh & Cluster Context** | Network + Page | Optional propagation for W3C OpenTelemetry `baggage`, `x-envoy-force-trace`, multi-tenant headers, and `x-telepresence-intercept-id`. |
 | **Workspaces & Domain Pinning** | `storage.local` | Isolated profiles (`Local`, `Staging`, `QA`), one-click **Pin Domain** to the active tab hostname, JSON export/import. |
-| **Live Traffic Inspector** | Page → Popup | Monitor outgoing `fetch` / `XHR` (method, URL, status, credentials mode, visible headers). Mutated rows are highlighted so you can disable the offending rule. Toggle **Monitor all fetch/XHR** on/off. |
+| **Live Traffic & Token Carrier Inspector** | Page → Popup | Inspect **Source Page → Target Endpoint** flow, headers, query params, raw request body, and response preview. Automatically detects how tokens/auth are carried (**HEADER**, **BODY**, **QUERY**, **COOKIE**) with filter pills and 1-click rule creation. |
 | **Safe Pass-Through** | Page interceptor | When no rule matches, original `fetch` / `XHR` is left untouched — cookies, credentials, and Bearer sessions stay intact. Cookie / Authorization are never injected from the page world. |
 | **ACTIVE / PAUSED Master Toggle** | Popup + All layers | One switch pauses every header, redirect, body, and context rule instantly; paused banner with **Enable Now**. |
 | **Language (EN / TR / Auto)** | Settings | Follows OS/browser language by default (`tr*` → Turkish, otherwise English). Force **EN** or **TR** anytime; preference is persisted. |

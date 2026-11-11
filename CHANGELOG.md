@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-11-11
+
+### Added
+- **Deep Traffic & Token Carrier Inspector**:
+  - Tracks **Source Page → Target Endpoint** flow (`pageUrl` → `url`), HTTP status, and latency (`ms`).
+  - Automatically detects and classifies where tokens/credentials travel: **HEADER** (`Authorization`, `X-API-Key`, `X-CSRF-Token`, etc.), **BODY** (JSON/form token fields & JWTs), **QUERY** (`?token=...`), or **COOKIE** (`credentials` mode + cookie names).
+  - Split-pane inspector with filter pills (`All`, `Has Token/Auth`, `Header`, `Body`, `Query`, `Cookie`, `Mutated`), full-text search across URL/headers/body, raw request body & response preview, and 1-click **+ Rule** / **+ Mock Rule** creation.
+
 ## [1.4.2] - 2026-11-11
 
 ### Added

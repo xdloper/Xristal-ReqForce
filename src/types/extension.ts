@@ -65,18 +65,34 @@ export interface Profile {
   redirectCorsRules: RedirectCorsRule[];
 }
 
+export type AuthCarrierLocation = 'header' | 'body' | 'query' | 'cookie';
+
+export interface AuthCarrierInfo {
+  location: AuthCarrierLocation;
+  key: string;
+  scheme?: string;
+  preview: string;
+}
+
 export interface InterceptLogEntry {
   id: string;
   timestamp: number;
   type: 'TRAFFIC' | 'HEADER' | 'BODY_REQ' | 'BODY_RES' | 'TELEPRESENCE' | 'REDIRECT';
   method: string;
   url: string;
+  pageUrl?: string;
   ruleName: string;
   details: string;
   status?: number;
+  durationMs?: number;
   mutated?: boolean;
   requestHeaders?: Record<string, string>;
+  responseHeaders?: Record<string, string>;
+  queryParams?: Record<string, string>;
+  requestBody?: string;
+  responsePreview?: string;
   credentials?: string;
+  authCarriers?: AuthCarrierInfo[];
 }
 
 export type LocalePreference = 'system' | 'en' | 'tr';

@@ -118,6 +118,11 @@ export default function App() {
   const [activeDomainPattern, setActiveDomainPattern] = useState<string>('*');
   const [showCurlModal, setShowCurlModal] = useState(false);
   const [curlInput, setCurlInput] = useState('');
+  const [inspectorQuery, setInspectorQuery] = useState('');
+  const [inspectorFilter, setInspectorFilter] = useState<
+    'all' | 'auth' | 'header' | 'body' | 'query' | 'cookie' | 'mutated'
+  >('all');
+  const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
 
   const t = useMemo(() => getMessages(state.locale), [state.locale]);
   const resolvedLocale = useMemo(
@@ -1538,114 +1543,441 @@ export default function App() {
         )}
 
         {/* =================================================================== */}
-        {/* TAB 4: INSPECTOR LOG                                                */}
+        {/* TAB 4: INSPECTOR — Page -> Target Flow, Token Carriers & Payloads   */}
         {/* =================================================================== */}
-        {activeTab === 'logs' && (
-          <div className="flex flex-col h-full">
-            <div className="flex items-center justify-between px-3.5 py-2 bg-rf-raised border-b border-rf-border text-[11px]">
-              <div className="flex items-center gap-3">
-                <span className="text-rf-4">
-                  {t.liveTraffic} ({state.logs.length})
-                </span>
-                <label className="flex items-center gap-1.5 text-rf-3 cursor-pointer">
-                  <Switch
-                    checked={state.trafficMonitorEnabled !== false}
-                    onChange={(val) =>
-                      updateState((prev) => ({
-                        ...prev,
-                        trafficMonitorEnabled: val,
-                      }))
-                    }
-                  />
-                  <span className="text-[10px]">{t.monitorAll}</span>
-                </label>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => loadExtensionState().then(setState)}
-                  className="h-6 px-2.5 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-rf-3"
-                >
-                  {t.refresh}
-                </button>
-                <button
-                  onClick={() => updateState((prev) => ({ ...prev, logs: [] }))}
-                  className="h-6 px-2.5 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-rf-4 hover:text-red-400"
-                >
-                  {t.clear}
-                </button>
-              </div>
-            </div>
+        {activeTab === 'logs' && (() => {
+          const filteredLogs = state.logs.filter((log) => {
+            if (inspectorFilter === 'mutated' && !log.mutated) return false;
+            if (inspectorFilter === 'auth' && (!log.authCarriers || log.authCarriers.length === 0)) {
+              return false;
+            }
+            if (
+              inspectorFilter === 'header' &&
+              !log.authCarriers?.some((c) => c.location === 'header')
+            ) {
+              return false;
+            }
+            if (
+              inspectorFilter === 'body' &&
+              !log.authCarriers?.some((c) => c.location === 'body')
+            ) {
+              return false;
+            }
+            if (
+              inspectorFilter === 'query' &&
+              !log.authCarriers?.some((c) => c.location === 'query')
+            ) {
+              return false;
+            }
+            if (
+              inspectorFilter === 'cookie' &&
+              !log.authCarriers?.some((c) => c.location === 'cookie')
+            ) {
+              return false;
+            }
+            if (!inspectorQuery.trim()) return true;
+            const q = inspectorQuery.toLowerCase();
+            const inUrl = log.url.toLowerCase().includes(q);
+            const inPage = (log.pageUrl || '').toLowerCase().includes(q);
+            const inHeaders = log.requestHeaders
+              ? Object.entries(log.requestHeaders).some(
+                  ([k, v]) =>
+                    k.toLowerCase().includes(q) || v.toLowerCase().includes(q)
+                )
+              : false;
+            const inBody = (log.requestBody || '').toLowerCase().includes(q);
+            const inRes = (log.responsePreview || '').toLowerCase().includes(q);
+            const inAuth = (log.authCarriers || []).some(
+              (c) =>
+                c.key.toLowerCase().includes(q) ||
+                c.preview.toLowerCase().includes(q)
+            );
+            return inUrl || inPage || inHeaders || inBody || inRes || inAuth;
+          });
 
-            <div className="px-3.5 py-1.5 bg-rf-base border-b border-rf-border/60 text-[10px] text-rf-5">
-              {t.inspectorHint}
-            </div>
+          const selectedLog =
+            filteredLogs.find((l) => l.id === selectedLogId) ||
+            filteredLogs[0] ||
+            null;
 
-            <div className="divide-y divide-rf-border/50 font-mono-code text-[11px] overflow-y-auto flex-1">
-              {state.logs.length === 0 ? (
-                <div className="py-16 text-center text-rf-5 font-sans text-xs">
+          const shortHostPath = (rawUrl?: string) => {
+            if (!rawUrl) return '—';
+            try {
+              const u = new URL(rawUrl);
+              return `${u.hostname}${u.pathname === '/' ? '' : u.pathname}`;
+            } catch {
+              return rawUrl;
+            }
+          };
+
+          const badgeColor = (loc: string) => {
+            if (loc === 'header') return 'bg-purple-500/15 text-purple-300 border-purple-500/30';
+            if (loc === 'body') return 'bg-amber-500/15 text-amber-300 border-amber-500/30';
+            if (loc === 'query') return 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30';
+            return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
+          };
+
+          return (
+            <div className="flex flex-col h-full">
+              {/* Top Filter & Control Bar */}
+              <div className="px-3.5 py-2 bg-rf-raised border-b border-rf-border space-y-1.5 shrink-0">
+                <div className="flex items-center justify-between gap-2 text-[11px]">
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-rf-3 font-medium">
+                      {t.liveTraffic} ({filteredLogs.length}/{state.logs.length})
+                    </span>
+                    <label className="flex items-center gap-1.5 text-rf-3 cursor-pointer">
+                      <Switch
+                        checked={state.trafficMonitorEnabled !== false}
+                        onChange={(val) =>
+                          updateState((prev) => ({
+                            ...prev,
+                            trafficMonitorEnabled: val,
+                          }))
+                        }
+                      />
+                      <span className="text-[10px]">{t.monitorAll}</span>
+                    </label>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <div className="relative flex items-center">
+                      <Search className="w-3 h-3 text-rf-5 absolute left-2 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={inspectorQuery}
+                        onChange={(e) => setInspectorQuery(e.target.value)}
+                        placeholder={t.inspectorFilterPlaceholder}
+                        className="h-6 pl-6 pr-2 w-48 rounded bg-rf-input border border-rf-border text-[10px] text-rf-2 placeholder-rf-5 focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <button
+                      onClick={() => loadExtensionState().then(setState)}
+                      className="h-6 px-2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[10px] text-rf-3"
+                    >
+                      {t.refresh}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSelectedLogId(null);
+                        updateState((prev) => ({ ...prev, logs: [] }));
+                      }}
+                      className="h-6 px-2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[10px] text-rf-4 hover:text-red-400"
+                    >
+                      {t.clear}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Auth Carrier Filter Pills */}
+                <div className="flex items-center gap-1 flex-wrap">
+                  {(
+                    [
+                      { id: 'all', label: t.inspectorFilterAll },
+                      { id: 'auth', label: t.inspectorFilterAuth },
+                      { id: 'header', label: t.inspectorFilterHeaderAuth },
+                      { id: 'body', label: t.inspectorFilterBodyAuth },
+                      { id: 'query', label: t.inspectorFilterQueryAuth },
+                      { id: 'cookie', label: t.inspectorFilterCookieAuth },
+                      { id: 'mutated', label: t.inspectorFilterMutated },
+                    ] as const
+                  ).map((pill) => (
+                    <button
+                      key={pill.id}
+                      onClick={() => setInspectorFilter(pill.id)}
+                      className={`h-5 px-2 rounded text-[10px] font-medium border transition-colors ${
+                        inspectorFilter === pill.id
+                          ? 'bg-blue-600 text-white border-blue-500'
+                          : 'bg-rf-input text-rf-4 border-rf-border hover:text-rf-2'
+                      }`}
+                    >
+                      {pill.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Split Pane: Left Request Stream | Right Deep Inspector */}
+              {filteredLogs.length === 0 ? (
+                <div className="py-16 text-center text-rf-5 text-xs">
                   {t.noTraffic}
                 </div>
               ) : (
-                state.logs.map((log) => (
-                  <div
-                    key={log.id}
-                    className={`px-3.5 py-2 hover:bg-rf-input/40 ${
-                      log.mutated ? 'bg-amber-500/5 border-l-2 border-l-amber-500/50' : ''
-                    }`}
-                  >
-                    <div className="grid grid-cols-12 gap-2 items-center">
-                      <div className="col-span-1">
-                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500/15 text-blue-300 font-semibold">
-                          {log.method}
-                        </span>
-                      </div>
-                      <div className="col-span-1 text-[10px] text-rf-4">
-                        {log.status ?? '—'}
-                      </div>
-                      <div
-                        className="col-span-6 truncate text-rf-2"
-                        title={log.url}
-                      >
-                        {log.url}
-                      </div>
-                      <div className="col-span-2 truncate text-emerald-400 text-[10px]">
-                        {log.details}
-                      </div>
-                      <div className="col-span-2 text-right text-rf-5 text-[10px]">
-                        {new Date(log.timestamp).toLocaleTimeString()}
-                      </div>
-                    </div>
-                    {(log.credentials || log.requestHeaders || log.ruleName !== '—') && (
-                      <div className="mt-1 pl-0 text-[10px] text-rf-5 flex flex-wrap gap-x-3 gap-y-0.5">
-                        {log.credentials && (
-                          <span>
-                            credentials: <code className="text-rf-3">{log.credentials}</code>
-                          </span>
-                        )}
-                        {log.ruleName && log.ruleName !== '—' && (
-                          <span>
-                            rule: <code className="text-amber-300">{log.ruleName}</code>
-                          </span>
-                        )}
-                        {log.requestHeaders &&
-                          Object.keys(log.requestHeaders).length > 0 && (
-                            <span className="truncate max-w-full">
-                              headers:{' '}
-                              <code className="text-rf-4">
-                                {Object.entries(log.requestHeaders)
-                                  .map(([k, v]) => `${k}=${v}`)
-                                  .join(' · ')}
-                              </code>
+                <div className="grid grid-cols-12 flex-1 min-h-0 overflow-hidden">
+                  {/* Left List (5 cols) */}
+                  <div className="col-span-5 border-r border-rf-border overflow-y-auto divide-y divide-rf-border/50 font-mono-code text-[10px]">
+                    {filteredLogs.map((log) => {
+                      const active = selectedLog?.id === log.id;
+                      return (
+                        <div
+                          key={log.id}
+                          onClick={() => setSelectedLogId(log.id)}
+                          className={`px-2.5 py-2 cursor-pointer transition-colors ${
+                            active
+                              ? 'bg-blue-600/15 border-l-2 border-l-blue-500'
+                              : log.mutated
+                              ? 'bg-amber-500/5 border-l-2 border-l-amber-500/50 hover:bg-rf-input/50'
+                              : 'hover:bg-rf-input/40'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="px-1 py-0.2 rounded text-[9px] bg-blue-500/15 text-blue-300 font-semibold shrink-0">
+                                {log.method}
+                              </span>
+                              <span
+                                className={`text-[9px] shrink-0 ${
+                                  (log.status || 200) >= 400
+                                    ? 'text-rose-400'
+                                    : 'text-emerald-400'
+                                }`}
+                              >
+                                {log.status ?? '—'}
+                              </span>
+                              <span className="truncate text-rf-1" title={log.url}>
+                                {shortHostPath(log.url)}
+                              </span>
+                            </div>
+                            <span className="text-[9px] text-rf-5 shrink-0">
+                              {log.durationMs != null ? `${log.durationMs}ms` : ''}
                             </span>
+                          </div>
+
+                          {/* Page -> Target mini breadcrumb */}
+                          {log.pageUrl && (
+                            <div className="mt-0.5 text-[9px] text-rf-5 truncate">
+                              {shortHostPath(log.pageUrl)} → {shortHostPath(log.url)}
+                            </div>
                           )}
+
+                          {/* Token Carrier Badges */}
+                          {log.authCarriers && log.authCarriers.length > 0 && (
+                            <div className="mt-1 flex items-center gap-1 flex-wrap">
+                              {log.authCarriers.map((c, idx) => (
+                                <span
+                                  key={`${c.key}-${idx}`}
+                                  className={`px-1 py-0.2 rounded border text-[9px] ${badgeColor(
+                                    c.location
+                                  )}`}
+                                >
+                                  {c.location.toUpperCase()}: {c.key}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Right Detail Inspector (7 cols) */}
+                  <div className="col-span-7 overflow-y-auto p-3 space-y-2.5 bg-rf-base text-[11px]">
+                    {!selectedLog ? (
+                      <div className="py-12 text-center text-rf-5 text-xs">
+                        {t.inspectorSelectHint}
                       </div>
+                    ) : (
+                      <>
+                        {/* Flow Card: Source Page -> Target Endpoint */}
+                        <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-rf-4">
+                              {t.inspectorPageOrigin} → {t.inspectorTargetUrl}
+                            </span>
+                            <button
+                              onClick={() => {
+                                let urlPattern = selectedLog.url;
+                                try {
+                                  urlPattern = new URL(selectedLog.url).pathname || selectedLog.url;
+                                } catch {
+                                  // keep full
+                                }
+                                const m = selectedLog.method.toUpperCase();
+                                const method: BodyRule['method'] = [
+                                  'GET',
+                                  'POST',
+                                  'PUT',
+                                  'PATCH',
+                                  'DELETE',
+                                ].includes(m)
+                                  ? (m as BodyRule['method'])
+                                  : 'ALL';
+                                const newRule: BodyRule = {
+                                  id: `b-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+                                  enabled: true,
+                                  name: `${method} ${urlPattern}`,
+                                  urlPattern,
+                                  isRegex: false,
+                                  method,
+                                  mode: selectedLog.responsePreview
+                                    ? 'merge_response_json'
+                                    : 'replace_request',
+                                  statusCode: selectedLog.status || 200,
+                                  delayMs: 0,
+                                  contentType: 'application/json',
+                                  bodyContent:
+                                    selectedLog.responsePreview ||
+                                    selectedLog.requestBody ||
+                                    '{\n  "status": "ok"\n}',
+                                };
+                                updateActiveProfile((prof) => ({
+                                  ...prof,
+                                  bodyRules: [newRule, ...prof.bodyRules],
+                                }));
+                                setSelectedBodyId(newRule.id);
+                                showToast(t.inspectorRuleCreated);
+                              }}
+                              className="h-5 px-2 rounded bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-medium"
+                            >
+                              {t.inspectorCreateBodyRule}
+                            </button>
+                          </div>
+                          <div className="font-mono-code text-[10px] space-y-1">
+                            <div className="truncate text-rf-4" title={selectedLog.pageUrl}>
+                              <span className="text-rf-5">{t.inspectorPageOrigin}: </span>
+                              {selectedLog.pageUrl || '—'}
+                            </div>
+                            <div className="break-all text-rf-1">
+                              <span className="text-rf-5">{t.inspectorTargetUrl}: </span>
+                              <span className="text-blue-400 font-semibold">
+                                {selectedLog.method}
+                              </span>{' '}
+                              {selectedLog.url}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Token & Auth Carrier Breakdown */}
+                        <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-1.5">
+                          <div className="text-[10px] font-semibold uppercase tracking-wider text-rf-4">
+                            {t.inspectorAuthTitle}
+                          </div>
+                          {!selectedLog.authCarriers ||
+                          selectedLog.authCarriers.length === 0 ? (
+                            <div className="text-[10px] text-rf-5">
+                              {t.inspectorNoAuthDetected}
+                            </div>
+                          ) : (
+                            <div className="space-y-1 font-mono-code text-[10px]">
+                              {selectedLog.authCarriers.map((c, idx) => (
+                                <div
+                                  key={`${c.location}-${c.key}-${idx}`}
+                                  className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-rf-input border border-rf-border"
+                                >
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <span
+                                      className={`px-1.5 py-0.2 rounded border text-[9px] font-semibold uppercase ${badgeColor(
+                                        c.location
+                                      )}`}
+                                    >
+                                      {c.location}
+                                    </span>
+                                    <span className="text-rf-1 font-semibold">
+                                      {c.key}
+                                    </span>
+                                    {c.scheme && (
+                                      <span className="text-rf-5">({c.scheme})</span>
+                                    )}
+                                  </div>
+                                  <code className="text-emerald-300 truncate max-w-[200px]">
+                                    {c.preview}
+                                  </code>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Request Headers */}
+                        {selectedLog.requestHeaders &&
+                          Object.keys(selectedLog.requestHeaders).length > 0 && (
+                            <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-1.5">
+                              <div className="text-[10px] font-semibold uppercase tracking-wider text-rf-4">
+                                {t.inspectorReqHeaders} (
+                                {Object.keys(selectedLog.requestHeaders).length})
+                              </div>
+                              <div className="space-y-1 font-mono-code text-[10px]">
+                                {Object.entries(selectedLog.requestHeaders).map(
+                                  ([k, v]) => (
+                                    <div
+                                      key={k}
+                                      className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-rf-input border border-rf-border"
+                                    >
+                                      <div className="truncate min-w-0">
+                                        <span className="text-blue-300">{k}</span>
+                                        <span className="text-rf-5">: </span>
+                                        <span className="text-rf-2 break-all">{v}</span>
+                                      </div>
+                                      <button
+                                        onClick={() => {
+                                          addHeaderRule(k, v, 'request', 'set');
+                                          showToast(t.inspectorRuleCreated);
+                                        }}
+                                        className="h-5 px-1.5 rounded bg-rf-hover hover:bg-rf-strong text-[9px] text-rf-2 shrink-0"
+                                      >
+                                        {t.inspectorCreateHeaderRule}
+                                      </button>
+                                    </div>
+                                  )
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                        {/* Query Parameters */}
+                        {selectedLog.queryParams &&
+                          Object.keys(selectedLog.queryParams).length > 0 && (
+                            <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-1.5">
+                              <div className="text-[10px] font-semibold uppercase tracking-wider text-rf-4">
+                                {t.inspectorQueryParams}
+                              </div>
+                              <div className="space-y-1 font-mono-code text-[10px]">
+                                {Object.entries(selectedLog.queryParams).map(
+                                  ([k, v]) => (
+                                    <div
+                                      key={k}
+                                      className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-rf-input border border-rf-border"
+                                    >
+                                      <span className="text-amber-300">?{k}</span>
+                                      <span className="text-rf-2 truncate">{v}</span>
+                                    </div>
+                                  )
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                        {/* Request Body */}
+                        {selectedLog.requestBody && (
+                          <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-1.5">
+                            <div className="text-[10px] font-semibold uppercase tracking-wider text-rf-4">
+                              {t.inspectorReqBody}
+                            </div>
+                            <pre className="p-2 rounded bg-rf-deep border border-rf-border font-mono-code text-[10px] text-emerald-300 overflow-x-auto whitespace-pre-wrap break-all max-h-36">
+                              {selectedLog.requestBody}
+                            </pre>
+                          </div>
+                        )}
+
+                        {/* Response Preview */}
+                        {selectedLog.responsePreview && (
+                          <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-1.5">
+                            <div className="text-[10px] font-semibold uppercase tracking-wider text-rf-4">
+                              {t.inspectorResPreview}
+                            </div>
+                            <pre className="p-2 rounded bg-rf-deep border border-rf-border font-mono-code text-[10px] text-rf-2 overflow-x-auto whitespace-pre-wrap break-all max-h-36">
+                              {selectedLog.responsePreview}
+                            </pre>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
-                ))
+                </div>
               )}
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* =================================================================== */}
         {/* TAB 5: SETTINGS — Language, Theme, Version, Structure               */}
