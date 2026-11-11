@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "HTTP Interceptor & Telepresence",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Request/Response Header, Body, CORS & Telepresence manipulation tool.",
   "permissions": [
     "declarativeNetRequest",

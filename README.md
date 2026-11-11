@@ -122,42 +122,71 @@ You can either download the latest `.zip` archive from [GitHub Releases](https:/
 
 ---
 
-## Usage Examples
+## Use Cases & Examples
 
-### 1. Routing Traffic to a Local Telepresence Intercept
+### 1. Kubernetes & Microservice Context Routing
 
-1. Start an intercept in your terminal:
-   ```bash
-   telepresence intercept my-service --port 8080:80
-   ```
-2. Copy the `x-telepresence-intercept-id` from the CLI output.
-3. Open the extension → **Telepresence** tab → paste the output.
-4. All matching browser requests will now carry `x-telepresence-intercept-id` and `baggage` headers.
+In shared Kubernetes clusters (using Telepresence, Envoy, Istio, or OpenTelemetry), routing specific browser requests to an isolated service instance without affecting other users requires propagating context headers across the call graph.
 
-### 2. Overriding a Single Key in an API Response
+- **Headers injected:**
+  ```http
+  x-telepresence-intercept-id: 9842a1b2-c3d4:order-service
+  baggage: telepresence-intercept-id=9842a1b2-c3d4:order-service
+  x-envoy-force-trace: true
+  ```
+- **Result:** The ingress gateway and downstream services route only your browser session's traffic to the target pod or local workload while production/staging traffic continues normally.
 
-1. Open **Body Override** → click **+ New**.
-2. Set Method to `GET`, URL Match to `/api/v1/user/permissions`, and Action Mode to `Response: Shallow Merge JSON`.
-3. Provide the keys you want to override:
-   ```json
-   {
-     "isAdmin": true,
-     "betaFeaturesEnabled": true
-   }
-   ```
-4. The original API response remains intact except for the merged keys.
+### 2. Feature Flag & Permission Testing (`Body Override`)
 
-### 3. Redirecting Production API Calls to Localhost
+Instead of modifying frontend code or changing database records to test UI states, patch specific JSON fields on the fly using **Response: Shallow Merge JSON**.
 
-1. Open **CORS / Redirect** → click **+ URL Redirect**.
-2. Source URL filter:
-   ```text
-   ^https://api\.example\.com/v1/(.*)
-   ```
-3. Destination URL:
-   ```text
-   http://localhost:8080/v1/\1
-   ```
+- **Target:** `GET /api/v1/user/session`
+- **Override Payload:**
+  ```json
+  {
+    "role": "SUPER_ADMIN",
+    "features": {
+      "newBillingFlow": true,
+      "auditLogsEnabled": true
+    }
+  }
+  ```
+- **Result:** All existing fields from the real API response are preserved, and only `role` and `features` are overwritten before the frontend application reads the response.
+
+### 3. Mocking Unbuilt Endpoints & Simulating Failures
+
+Test how the frontend handles edge cases (`401 Unauthorized`, `429 Too Many Requests`, `500 Internal Server Error`) or high network latency before the backend endpoint is ready.
+
+- **Target:** `POST /api/v1/payments/checkout`
+- **Mode:** `Response: Replace Full Body (Mock)`
+- **Status Code:** `503` | **Delay:** `2500 ms`
+- **Payload:**
+  ```json
+  {
+    "error": "UPSTREAM_TIMEOUT",
+    "message": "Payment gateway did not respond within the expected window."
+  }
+  ```
+
+### 4. Authentication, IP Spoofing & Cache Control (`Headers`)
+
+Inject or strip HTTP headers globally or per domain for debugging auth flows, CDN behavior, or multi-tenant routing:
+
+| Operation | Target | Header | Value | Use Case |
+| :--- | :--- | :--- | :--- | :--- |
+| `SET` | `REQ` | `Authorization` | `Bearer eyJhbGci...` | Test API endpoints with a specific JWT token |
+| `SET` | `REQ` | `x-tenant-id` | `acme-corp-staging` | Switch multi-tenant context across requests |
+| `SET` | `REQ` | `x-forwarded-for` | `10.24.0.15` | Test geo/IP-based backend rules |
+| `SET` | `REQ` | `Cache-Control` | `no-cache, no-store` | Bypass intermediate CDN and browser caching |
+| `DEL` | `RES` | `Content-Security-Policy` | *(removed)* | Debug third-party script or frame integration locally |
+
+### 5. Hybrid Local Development (`CORS / Redirect`)
+
+Run a single microservice on `localhost` while the frontend application continues running on the staging domain:
+
+- **Source Filter:** `^https://api\.staging\.example\.com/v2/users/(.*)`
+- **Destination:** `http://localhost:8080/v2/users/\1`
+- Combine with a **CORS Rule** (`Access-Control-Allow-Origin: *`) to prevent preflight blocks between the staging origin and `localhost`.
 
 ---
 

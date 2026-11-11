@@ -1,7 +1,7 @@
 {
   "name": "dev-browser-manipulations",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "HTTP Header, Body & Telepresence Interceptor",
   "type": "module",
   "scripts": {
