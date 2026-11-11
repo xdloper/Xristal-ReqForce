@@ -392,9 +392,46 @@ extApi.runtime.onStartup?.addListener(() => {
   syncAllRules();
 });
 
+let storageQueue: Promise<void> = Promise.resolve();
+
+function enqueueStorageUpdate(
+  fn: (current: ExtensionState) => ExtensionState | Promise<ExtensionState>
+): Promise<ExtensionState> {
+  let resultState: ExtensionState = FALLBACK_STATE;
+  storageQueue = storageQueue
+    .then(async () => {
+      const data = await extApi.storage.local.get('devManipulatorState');
+      const current: ExtensionState = data?.devManipulatorState || FALLBACK_STATE;
+      resultState = await fn(current);
+      await extApi.storage.local.set({ devManipulatorState: resultState });
+    })
+    .catch(() => {});
+  return storageQueue.then(() => resultState);
+}
+
 extApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === 'SYNC_STATE') {
-    syncAllRules(message.state).then(() => sendResponse({ ok: true }));
+    enqueueStorageUpdate((current) => {
+      const incoming: ExtensionState = message.state || current;
+      const keepExistingLogs =
+        !message.replaceLogs &&
+        Array.isArray(current.logs) &&
+        current.logs.length > 0 &&
+        (!incoming.logs || incoming.logs.length < current.logs.length);
+      return {
+        ...incoming,
+        logs: keepExistingLogs ? current.logs : incoming.logs || [],
+      };
+    })
+      .then((merged) => syncAllRules(merged))
+      .then(() => sendResponse({ ok: true }));
+    return true;
+  }
+
+  if (message?.type === 'CLEAR_INTERCEPT_LOGS') {
+    enqueueStorageUpdate((current) => ({ ...current, logs: [] })).then(() =>
+      sendResponse({ ok: true })
+    );
     return true;
   }
 
@@ -407,13 +444,10 @@ extApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message?.type === 'ADD_INTERCEPT_LOG') {
     const newEntry: InterceptLogEntry = message.entry;
-    extApi.storage.local.get('devManipulatorState').then(async (data) => {
-      const st: ExtensionState = data?.devManipulatorState || FALLBACK_STATE;
-      const updatedLogs = [newEntry, ...(st.logs || [])].slice(0, 80);
-      const nextState: ExtensionState = { ...st, logs: updatedLogs };
-      await extApi.storage.local.set({ devManipulatorState: nextState });
-      sendResponse({ ok: true });
-    });
+    enqueueStorageUpdate((st) => {
+      const updatedLogs = [newEntry, ...(st.logs || [])].slice(0, 120);
+      return { ...st, logs: updatedLogs };
+    }).then(() => sendResponse({ ok: true }));
     return true;
   }
 

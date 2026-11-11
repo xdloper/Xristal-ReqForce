@@ -188,13 +188,26 @@ export async function loadExtensionState(): Promise<ExtensionState> {
   }
 }
 
-export async function saveExtensionState(state: ExtensionState): Promise<void> {
+export async function saveExtensionState(
+  state: ExtensionState,
+  options?: { replaceLogs?: boolean }
+): Promise<void> {
   try {
     if (!extApi?.storage?.local) return;
-    await extApi.storage.local.set({ devManipulatorState: state });
-    extApi.runtime?.sendMessage({ type: 'SYNC_STATE', state }, () => {
-      void extApi.runtime?.lastError;
-    });
+    if (extApi.runtime?.sendMessage) {
+      extApi.runtime.sendMessage(
+        {
+          type: 'SYNC_STATE',
+          state,
+          replaceLogs: Boolean(options?.replaceLogs),
+        },
+        () => {
+          void extApi.runtime?.lastError;
+        }
+      );
+    } else {
+      await extApi.storage.local.set({ devManipulatorState: state });
+    }
   } catch {
     // Ignore
   }

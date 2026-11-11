@@ -29,7 +29,10 @@ import {
   HeaderOperation,
   HeaderRule,
   HeaderTarget,
+  InterceptLogEntry,
   LocalePreference,
+  OutgoingField,
+  OutgoingValueType,
   Profile,
   RedirectCorsRule,
   TelepresenceConfig,
@@ -122,8 +125,11 @@ export default function App() {
   const [logSearch, setLogSearch] = useState('');
   const [logFilter, setLogFilter] = useState<'all' | 'tokens' | 'mutated' | 'errors'>('all');
   const [inspectorSection, setInspectorSection] = useState<
-    'overview' | 'reqHeaders' | 'reqBody' | 'resBody' | 'resHeaders'
-  >('overview');
+    'outgoing' | 'response' | 'headers'
+  >('outgoing');
+  const [outgoingChannelFilter, setOutgoingChannelFilter] = useState<
+    'all' | 'body' | 'query' | 'header' | 'cookie'
+  >('all');
 
   const t = useMemo(() => getMessages(state.locale), [state.locale]);
   const resolvedLocale = useMemo(
@@ -178,6 +184,25 @@ export default function App() {
         })
         .catch(() => {});
     }
+
+    const onStorageChange = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      area: string
+    ) => {
+      if (area === 'local' && changes.devManipulatorState?.newValue) {
+        const nextVal = changes.devManipulatorState.newValue as ExtensionState;
+        if (Array.isArray(nextVal.logs)) {
+          setState((prev) => ({
+            ...prev,
+            logs: nextVal.logs,
+          }));
+        }
+      }
+    };
+    extApi?.storage?.onChanged?.addListener(onStorageChange);
+    return () => {
+      extApi?.storage?.onChanged?.removeListener(onStorageChange);
+    };
   }, []);
 
   const showToast = (msg: string) => {
@@ -1607,6 +1632,135 @@ export default function App() {
               }
             };
 
+            const extractResponseFields = (
+              raw?: string
+            ): Array<{ key: string; value: string; valueType: OutgoingValueType }> => {
+              if (!raw || !raw.trim()) return [];
+              const fields: Array<{
+                key: string;
+                value: string;
+                valueType: OutgoingValueType;
+              }> = [];
+              try {
+                const parsed = JSON.parse(raw);
+                const flatten = (val: unknown, path: string, depth: number) => {
+                  if (fields.length > 60) return;
+                  if (val === null) {
+                    fields.push({ key: path || '(root)', value: 'null', valueType: 'null' });
+                    return;
+                  }
+                  if (Array.isArray(val)) {
+                    if (val.length === 0 || depth >= 3) {
+                      fields.push({
+                        key: path || '(array)',
+                        value: JSON.stringify(val),
+                        valueType: 'array',
+                      });
+                    } else {
+                      val.slice(0, 15).forEach((item, idx) => {
+                        flatten(item, `${path}[${idx}]`, depth + 1);
+                      });
+                    }
+                    return;
+                  }
+                  if (typeof val === 'object') {
+                    const entries = Object.entries(val as Record<string, unknown>);
+                    if (entries.length === 0 || depth >= 3) {
+                      fields.push({
+                        key: path || '(object)',
+                        value: JSON.stringify(val),
+                        valueType: 'object',
+                      });
+                    } else {
+                      for (const [k, v] of entries) {
+                        flatten(v, path ? `${path}.${k}` : k, depth + 1);
+                      }
+                    }
+                    return;
+                  }
+                  const tType = typeof val;
+                  fields.push({
+                    key: path || '(value)',
+                    value: String(val),
+                    valueType:
+                      tType === 'number'
+                        ? 'number'
+                        : tType === 'boolean'
+                        ? 'boolean'
+                        : 'string',
+                  });
+                };
+                flatten(parsed, '', 0);
+              } catch {
+                // not JSON
+              }
+              return fields;
+            };
+
+            const valueTypeColor = (vt: OutgoingValueType) => {
+              switch (vt) {
+                case 'number':
+                  return 'text-amber-300';
+                case 'boolean':
+                  return 'text-purple-300';
+                case 'null':
+                  return 'text-rf-5 italic';
+                case 'array':
+                case 'object':
+                  return 'text-blue-300';
+                default:
+                  return 'text-emerald-300';
+              }
+            };
+
+            const buildCurlFromLog = (log: InterceptLogEntry): string => {
+              const parts: string[] = [`curl -X ${log.method} '${log.url}'`];
+              for (const [k, v] of Object.entries(log.requestHeaders || {})) {
+                parts.push(`  -H '${k}: ${v.replace(/'/g, "'\\''")}'`);
+              }
+              if (log.requestBody) {
+                parts.push(`  --data-raw '${log.requestBody.replace(/'/g, "'\\''")}'`);
+              }
+              return parts.join(' \\\n');
+            };
+
+            const createBodyRuleFromLog = (
+              log: InterceptLogEntry,
+              mode: BodyRuleMode
+            ) => {
+              const isReq =
+                mode === 'replace_request' || mode === 'merge_request_json';
+              const pattern = log.pathname || log.url;
+              const content = isReq
+                ? formatPretty(log.requestBody) || '{\n  \n}'
+                : formatPretty(log.responseBody) || '{\n  "status": "ok"\n}';
+              const validMethod = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(
+                log.method
+              )
+                ? (log.method as BodyRule['method'])
+                : 'ALL';
+              const newRule: BodyRule = {
+                id: `b-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+                enabled: true,
+                name: `${log.method} ${log.pathname || shortUrl(log.url)}`,
+                urlPattern: pattern,
+                isRegex: false,
+                method: validMethod,
+                mode,
+                statusCode: log.status || 200,
+                delayMs: 0,
+                contentType: 'application/json',
+                bodyContent: content,
+              };
+              updateActiveProfile((prof) => ({
+                ...prof,
+                bodyRules: [newRule, ...prof.bodyRules],
+              }));
+              setSelectedBodyId(newRule.id);
+              setActiveTab('body');
+              showToast(`+ ${newRule.name}`);
+            };
+
             const channelBadge = (ch: string) => {
               switch (ch) {
                 case 'header':
@@ -1700,7 +1854,7 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-12 flex-1 min-h-0">
-                    {/* Left: Request list with Source Page → Target URL & Token chips */}
+                    {/* Left: Request list with Source Page → Target URL & Outgoing chips */}
                     <div className="col-span-5 border-r border-rf-border overflow-y-auto divide-y divide-rf-border/60 bg-rf-sunken">
                       {filteredLogs.map((log) => {
                         const isSelected = activeLog?.id === log.id;
@@ -1712,6 +1866,11 @@ export default function App() {
                             : log.status >= 300
                             ? 'text-amber-300'
                             : 'text-emerald-400';
+
+                        const bodyFieldCount =
+                          log.outgoingFields?.filter((f) => f.channel === 'body').length || 0;
+                        const queryFieldCount =
+                          log.outgoingFields?.filter((f) => f.channel === 'query').length || 0;
 
                         return (
                           <div
@@ -1725,11 +1884,16 @@ export default function App() {
                                 : 'hover:bg-rf-input/60'
                             }`}
                           >
-                            {/* Row 1: Method + Status + Target URL */}
+                            {/* Row 1: Method + Transport + Status + Target URL */}
                             <div className="flex items-center gap-1.5 min-w-0">
                               <span className="px-1.5 py-0.5 rounded text-[9px] font-mono-code bg-blue-500/15 text-blue-300 font-semibold shrink-0">
                                 {log.method}
                               </span>
+                              {log.transport && (
+                                <span className="px-1 py-0.2 rounded text-[8px] font-mono-code uppercase bg-rf-hover text-rf-4 shrink-0">
+                                  {log.transport}
+                                </span>
+                              )}
                               <span
                                 className={`text-[10px] font-mono-code font-semibold shrink-0 ${statusColor}`}
                               >
@@ -1753,9 +1917,22 @@ export default function App() {
                               </span>
                             </div>
 
-                            {/* Row 3: Token channel badges + Mutated badge */}
-                            {((log.tokens && log.tokens.length > 0) || log.mutated) && (
+                            {/* Row 3: Channel counts, Token badges, Mutated badge */}
+                            {(bodyFieldCount > 0 ||
+                              queryFieldCount > 0 ||
+                              (log.tokens && log.tokens.length > 0) ||
+                              log.mutated) && (
                               <div className="flex items-center gap-1 flex-wrap mt-1">
+                                {bodyFieldCount > 0 && (
+                                  <span className="px-1.5 py-0.2 rounded border border-purple-500/30 bg-purple-500/15 text-purple-300 text-[9px] font-mono-code">
+                                    body:{bodyFieldCount}
+                                  </span>
+                                )}
+                                {queryFieldCount > 0 && (
+                                  <span className="px-1.5 py-0.2 rounded border border-amber-500/30 bg-amber-500/15 text-amber-300 text-[9px] font-mono-code">
+                                    query:{queryFieldCount}
+                                  </span>
+                                )}
                                 {log.tokens?.map((tk, idx) => (
                                   <span
                                     key={idx}
@@ -1786,247 +1963,472 @@ export default function App() {
                         </div>
                       ) : (
                         <>
-                          {/* Sub-tabs inside detail pane */}
-                          <div className="flex items-center gap-1 px-3 h-8 bg-rf-raised border-b border-rf-border shrink-0">
-                            {(
-                              [
-                                { id: 'overview' as const, label: 'Flow & Tokens' },
-                                {
-                                  id: 'reqHeaders' as const,
-                                  label: `${t.inspectorReqHeaders} (${
-                                    Object.keys(activeLog.requestHeaders || {}).length
-                                  })`,
-                                },
-                                { id: 'reqBody' as const, label: t.inspectorReqBody },
-                                { id: 'resBody' as const, label: t.inspectorResBody },
-                                {
-                                  id: 'resHeaders' as const,
-                                  label: `${t.inspectorResHeaders} (${
-                                    Object.keys(activeLog.responseHeaders || {}).length
-                                  })`,
-                                },
-                              ]
-                            ).map((sec) => (
+                          {/* Sub-tabs + quick action bar inside detail pane */}
+                          <div className="flex items-center justify-between gap-1 px-3 h-8 bg-rf-raised border-b border-rf-border shrink-0">
+                            <div className="flex items-center gap-1">
+                              {(
+                                [
+                                  {
+                                    id: 'outgoing' as const,
+                                    label: `${t.inspectorTabOutgoing}${
+                                      activeLog.outgoingFields?.length
+                                        ? ` (${activeLog.outgoingFields.length})`
+                                        : ''
+                                    }`,
+                                  },
+                                  {
+                                    id: 'response' as const,
+                                    label: `${t.inspectorTabResponse}${
+                                      activeLog.status ? ` (${activeLog.status})` : ''
+                                    }`,
+                                  },
+                                  {
+                                    id: 'headers' as const,
+                                    label: t.inspectorTabHeadersRaw,
+                                  },
+                                ]
+                              ).map((sec) => (
+                                <button
+                                  key={sec.id}
+                                  onClick={() => setInspectorSection(sec.id)}
+                                  className={`h-6 px-2 rounded text-[10px] font-medium transition-colors ${
+                                    inspectorSection === sec.id
+                                      ? 'bg-blue-600 text-white'
+                                      : 'text-rf-4 hover:text-rf-2 hover:bg-rf-hover'
+                                  }`}
+                                >
+                                  {sec.label}
+                                </button>
+                              ))}
+                            </div>
+
+                            {/* Quick 1-click actions */}
+                            <div className="flex items-center gap-1">
                               <button
-                                key={sec.id}
-                                onClick={() => setInspectorSection(sec.id)}
-                                className={`h-6 px-2 rounded text-[10px] font-medium transition-colors ${
-                                  inspectorSection === sec.id
-                                    ? 'bg-blue-600 text-white'
-                                    : 'text-rf-4 hover:text-rf-2 hover:bg-rf-hover'
-                                }`}
+                                onClick={() =>
+                                  createBodyRuleFromLog(activeLog, 'replace_response')
+                                }
+                                className="h-5 px-1.5 rounded bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[9px] font-medium"
                               >
-                                {sec.label}
+                                + {t.inspectorMockThisResponse}
                               </button>
-                            ))}
+                              {activeLog.requestBody && (
+                                <button
+                                  onClick={() =>
+                                    createBodyRuleFromLog(activeLog, 'merge_request_json')
+                                  }
+                                  className="h-5 px-1.5 rounded bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-300 text-[9px] font-medium"
+                                >
+                                  + {t.inspectorOverrideRequestBody}
+                                </button>
+                              )}
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(buildCurlFromLog(activeLog));
+                                  showToast('cURL copied');
+                                }}
+                                className="h-5 px-1.5 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-rf-3 text-[9px]"
+                              >
+                                {t.inspectorCopyCurl}
+                              </button>
+                            </div>
                           </div>
 
                           <div className="p-3 overflow-y-auto flex-1 space-y-3 font-mono-code text-[11px]">
-                            {inspectorSection === 'overview' && (
+                            {/* ================================================= */}
+                            {/* SECTION 1: OUTGOING VALUES & HOW IT TRAVELS       */}
+                            {/* ================================================= */}
+                            {inspectorSection === 'outgoing' && (
                               <>
-                                {/* Source Page → Target Endpoint card */}
+                                {/* How It Travels Card */}
                                 <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-1.5">
-                                  <div>
-                                    <span className="text-[9px] uppercase font-sans font-semibold text-rf-5">
-                                      {t.inspectorSourcePage}
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-sans font-semibold text-rf-2">
+                                      {t.inspectorHowItGoes}
                                     </span>
-                                    <div className="text-rf-2 break-all">
-                                      {activeLog.pageUrl || '—'}
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <span className="text-[9px] uppercase font-sans font-semibold text-rf-5">
-                                      {t.inspectorTargetUrl}
-                                    </span>
-                                    <div className="text-blue-300 break-all">
-                                      {activeLog.method} {activeLog.url}
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center gap-3 pt-1 text-[10px] text-rf-4 font-sans">
-                                    <span>
-                                      Status: <strong className="text-rf-1">{activeLog.status ?? '—'}</strong>
-                                    </span>
-                                    <span>
-                                      Credentials: <strong className="text-rf-1">{activeLog.credentials || 'same-origin'}</strong>
-                                    </span>
-                                    {activeLog.durationMs != null && (
-                                      <span>
-                                        Time: <strong className="text-rf-1">{activeLog.durationMs} ms</strong>
+                                    <div className="flex items-center gap-1.5 text-[9px]">
+                                      <span className="px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300 font-semibold uppercase">
+                                        {activeLog.transport || 'fetch'}
                                       </span>
-                                    )}
+                                      <span className="px-1.5 py-0.5 rounded bg-rf-input border border-rf-border text-rf-3">
+                                        {activeLog.method}
+                                      </span>
+                                      {activeLog.contentType && (
+                                        <span className="px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300 truncate max-w-[160px]">
+                                          {activeLog.contentType.split(';')[0]}
+                                        </span>
+                                      )}
+                                      <span className="px-1.5 py-0.5 rounded bg-rf-input border border-rf-border text-rf-4">
+                                        creds:{activeLog.credentials || 'same-origin'}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="text-[10px] text-rf-4 break-all">
+                                    <span className="text-rf-5">{t.inspectorSourcePage}: </span>
+                                    <span className="text-rf-2">{activeLog.pageUrl || '—'}</span>
+                                  </div>
+                                  <div className="text-[10px] text-rf-4 break-all">
+                                    <span className="text-rf-5">{t.inspectorTargetUrl}: </span>
+                                    <span className="text-blue-300">{activeLog.url}</span>
                                   </div>
                                 </div>
 
-                                {/* Token & Auth Radar */}
+                                {/* Outgoing Values Inspector (Key → Value across Body, Query, Header, Cookie) */}
                                 <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-2">
-                                  <div className="text-[10px] font-sans font-semibold text-rf-2">
-                                    🔑 {t.inspectorTokenRadar}
-                                  </div>
-                                  {!activeLog.tokens || activeLog.tokens.length === 0 ? (
-                                    <div className="text-[11px] font-sans text-rf-5">
-                                      {t.inspectorNoTokens}
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-[10px] font-sans font-semibold text-rf-2">
+                                      📦 {t.inspectorOutgoingValues}
+                                    </span>
+                                    <div className="flex items-center gap-1 font-sans">
+                                      {(
+                                        [
+                                          { id: 'all' as const, label: t.inspectorFilterChannelAll },
+                                          { id: 'body' as const, label: 'Body' },
+                                          { id: 'query' as const, label: 'Query' },
+                                          { id: 'header' as const, label: 'Header' },
+                                          { id: 'cookie' as const, label: 'Cookie' },
+                                        ]
+                                      ).map((ch) => (
+                                        <button
+                                          key={ch.id}
+                                          onClick={() => setOutgoingChannelFilter(ch.id)}
+                                          className={`h-4 px-1.5 rounded text-[9px] font-medium ${
+                                            outgoingChannelFilter === ch.id
+                                              ? 'bg-blue-600 text-white'
+                                              : 'bg-rf-input text-rf-4 hover:text-rf-2'
+                                          }`}
+                                        >
+                                          {ch.label}
+                                        </button>
+                                      ))}
                                     </div>
-                                  ) : (
+                                  </div>
+
+                                  {(() => {
+                                    const allFields = activeLog.outgoingFields || [];
+                                    const shownFields =
+                                      outgoingChannelFilter === 'all'
+                                        ? allFields
+                                        : allFields.filter(
+                                            (f) => f.channel === outgoingChannelFilter
+                                          );
+                                    if (shownFields.length === 0) {
+                                      return (
+                                        <div className="text-[11px] font-sans text-rf-5 py-2">
+                                          {t.inspectorNoOutgoingValues}
+                                        </div>
+                                      );
+                                    }
+                                    return (
+                                      <div className="divide-y divide-rf-border/50 rounded border border-rf-border bg-rf-deep overflow-hidden">
+                                        {shownFields.map((f, idx) => (
+                                          <div
+                                            key={`${f.channel}-${f.key}-${idx}`}
+                                            className="flex items-start justify-between gap-2 px-2 py-1.5 hover:bg-rf-input/40"
+                                          >
+                                            <div className="flex items-center gap-1.5 min-w-0 shrink-0">
+                                              <span
+                                                className={`px-1 py-0.2 rounded border text-[8px] uppercase font-semibold ${channelBadge(
+                                                  f.channel
+                                                )}`}
+                                              >
+                                                {f.channel}
+                                              </span>
+                                              <span className="text-rf-1 font-semibold">
+                                                {f.key}
+                                              </span>
+                                              <span className="text-[9px] text-rf-5">
+                                                ({f.valueType})
+                                              </span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 min-w-0">
+                                              <span
+                                                className={`break-all text-right ${valueTypeColor(
+                                                  f.valueType
+                                                )}`}
+                                              >
+                                                {f.value}
+                                              </span>
+                                              <button
+                                                onClick={() => {
+                                                  navigator.clipboard.writeText(f.value);
+                                                  showToast(`Copied ${f.key}`);
+                                                }}
+                                                title="Copy value"
+                                                className="text-rf-5 hover:text-rf-2 shrink-0"
+                                              >
+                                                <Copy className="w-3 h-3" />
+                                              </button>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+
+                                {/* Original vs Mutated Request Body Diff */}
+                                {activeLog.originalRequestBody && (
+                                  <div className="rounded-md bg-amber-500/10 border border-amber-500/30 p-2.5 space-y-1.5">
+                                    <div className="text-[10px] font-sans font-semibold text-amber-300">
+                                      ⚡ {t.inspectorOriginalVsMutated}
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div>
+                                        <div className="text-[9px] text-rf-4 mb-0.5">Original</div>
+                                        <pre className="p-2 rounded bg-rf-deep border border-rf-border text-rose-300 whitespace-pre-wrap break-all text-[10px]">
+                                          {formatPretty(activeLog.originalRequestBody)}
+                                        </pre>
+                                      </div>
+                                      <div>
+                                        <div className="text-[9px] text-rf-4 mb-0.5">Sent</div>
+                                        <pre className="p-2 rounded bg-rf-deep border border-rf-border text-emerald-300 whitespace-pre-wrap break-all text-[10px]">
+                                          {formatPretty(activeLog.requestBody)}
+                                        </pre>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Token & Auth Radar + Decoded JWT */}
+                                {activeLog.tokens && activeLog.tokens.length > 0 && (
+                                  <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-2">
+                                    <div className="text-[10px] font-sans font-semibold text-rf-2">
+                                      🔑 {t.inspectorTokenRadar}
+                                    </div>
                                     <div className="space-y-1.5">
                                       {activeLog.tokens.map((tk, i) => (
                                         <div
                                           key={i}
-                                          className="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-rf-input border border-rf-border"
+                                          className="rounded bg-rf-input border border-rf-border p-2 space-y-1.5"
                                         >
-                                          <div className="flex items-center gap-2 min-w-0">
-                                            <span
-                                              className={`px-1.5 py-0.5 rounded border text-[9px] uppercase font-semibold shrink-0 ${channelBadge(
-                                                tk.channel
-                                              )}`}
-                                            >
-                                              {tk.channel}
-                                            </span>
-                                            <span className="text-rf-1 font-semibold truncate">
-                                              {tk.key}
-                                            </span>
+                                          <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2 min-w-0">
+                                              <span
+                                                className={`px-1.5 py-0.5 rounded border text-[9px] uppercase font-semibold shrink-0 ${channelBadge(
+                                                  tk.channel
+                                                )}`}
+                                              >
+                                                {tk.channel}
+                                              </span>
+                                              <span className="text-rf-1 font-semibold truncate">
+                                                {tk.key}
+                                              </span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                              <span className="text-emerald-300 text-[10px]">
+                                                {tk.preview}
+                                              </span>
+                                              {tk.rawValue && (
+                                                <button
+                                                  onClick={() => {
+                                                    navigator.clipboard.writeText(
+                                                      tk.rawValue || ''
+                                                    );
+                                                    showToast(`Copied ${tk.key}`);
+                                                  }}
+                                                  className="text-rf-4 hover:text-rf-1"
+                                                >
+                                                  <Copy className="w-3 h-3" />
+                                                </button>
+                                              )}
+                                            </div>
                                           </div>
-                                          <span className="text-emerald-300 text-[10px] truncate">
-                                            {tk.preview}
-                                          </span>
+                                          {tk.jwtDecoded && (
+                                            <div className="pt-1 border-t border-rf-border/60">
+                                              <div className="text-[9px] font-sans text-blue-300 mb-1">
+                                                {t.inspectorDecodedJwt}:
+                                              </div>
+                                              <pre className="p-1.5 rounded bg-rf-deep text-[10px] text-amber-200 whitespace-pre-wrap break-all">
+                                                {JSON.stringify(tk.jwtDecoded, null, 2)}
+                                              </pre>
+                                            </div>
+                                          )}
                                         </div>
                                       ))}
                                     </div>
-                                  )}
-                                </div>
-
-                                {/* Query Params if any */}
-                                {activeLog.queryParams &&
-                                  Object.keys(activeLog.queryParams).length > 0 && (
-                                    <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-1">
-                                      <div className="text-[10px] font-sans font-semibold text-rf-2">
-                                        {t.inspectorQueryParams}
-                                      </div>
-                                      {Object.entries(activeLog.queryParams).map(([k, v]) => (
-                                        <div key={k} className="flex justify-between gap-2 text-[11px]">
-                                          <span className="text-amber-300">{k}</span>
-                                          <span className="text-rf-2 break-all">{v}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                              </>
-                            )}
-
-                            {inspectorSection === 'reqHeaders' && (
-                              <div className="space-y-1">
-                                {!activeLog.requestHeaders ||
-                                Object.keys(activeLog.requestHeaders).length === 0 ? (
-                                  <div className="text-rf-5 font-sans text-xs py-6 text-center">
-                                    {t.inspectorEmpty}
                                   </div>
-                                ) : (
-                                  Object.entries(activeLog.requestHeaders).map(([k, v]) => (
-                                    <div
-                                      key={k}
-                                      className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded bg-rf-raised border border-rf-border"
-                                    >
-                                      <div className="min-w-0 flex-1">
-                                        <span className="text-blue-300 font-semibold">{k}: </span>
-                                        <span className="text-rf-2 break-all">{v}</span>
-                                      </div>
-                                      <button
-                                        onClick={() => {
-                                          addHeaderRule(k, v, 'request', 'set');
-                                          showToast(`+ ${k}`);
-                                        }}
-                                        className="h-5 px-1.5 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[9px] font-sans text-rf-3 shrink-0"
-                                      >
-                                        {t.inspectorAddAsHeaderRule}
-                                      </button>
-                                    </div>
-                                  ))
                                 )}
-                              </div>
-                            )}
 
-                            {inspectorSection === 'resHeaders' && (
-                              <div className="space-y-1">
-                                {!activeLog.responseHeaders ||
-                                Object.keys(activeLog.responseHeaders).length === 0 ? (
-                                  <div className="text-rf-5 font-sans text-xs py-6 text-center">
-                                    {t.inspectorEmpty}
-                                  </div>
-                                ) : (
-                                  Object.entries(activeLog.responseHeaders).map(([k, v]) => (
-                                    <div
-                                      key={k}
-                                      className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded bg-rf-raised border border-rf-border"
-                                    >
-                                      <div className="min-w-0 flex-1">
-                                        <span className="text-purple-300 font-semibold">{k}: </span>
-                                        <span className="text-rf-2 break-all">{v}</span>
-                                      </div>
+                                {/* Raw Outgoing Payload */}
+                                {activeLog.requestBody && (
+                                  <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[10px] font-sans font-semibold text-rf-2">
+                                        {t.inspectorShowRawJson}
+                                      </span>
                                       <button
                                         onClick={() => {
-                                          addHeaderRule(k, v, 'response', 'set');
-                                          showToast(`+ ${k}`);
-                                        }}
-                                        className="h-5 px-1.5 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[9px] font-sans text-rf-3 shrink-0"
-                                      >
-                                        {t.inspectorAddAsHeaderRule}
-                                      </button>
-                                    </div>
-                                  ))
-                                )}
-                              </div>
-                            )}
-
-                            {inspectorSection === 'reqBody' && (
-                              <div className="space-y-1.5">
-                                {!activeLog.requestBody ? (
-                                  <div className="text-rf-5 font-sans text-xs py-6 text-center">
-                                    {t.inspectorEmpty}
-                                  </div>
-                                ) : (
-                                  <>
-                                    <div className="flex justify-end">
-                                      <button
-                                        onClick={() => {
-                                          navigator.clipboard.writeText(activeLog.requestBody || '');
+                                          navigator.clipboard.writeText(
+                                            activeLog.requestBody || ''
+                                          );
                                           showToast('Copied');
                                         }}
-                                        className="h-5 px-2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[10px] font-sans text-rf-3"
+                                        className="h-5 px-2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[9px] font-sans text-rf-3"
                                       >
                                         {t.inspectorCopyBody}
                                       </button>
                                     </div>
-                                    <pre className="p-2.5 rounded bg-rf-deep border border-rf-border text-emerald-300 whitespace-pre-wrap break-all leading-relaxed">
+                                    <pre className="p-2 rounded bg-rf-deep border border-rf-border text-emerald-300 whitespace-pre-wrap break-all leading-relaxed">
                                       {formatPretty(activeLog.requestBody)}
                                     </pre>
-                                  </>
+                                  </div>
                                 )}
-                              </div>
+                              </>
                             )}
 
-                            {inspectorSection === 'resBody' && (
-                              <div className="space-y-1.5">
+                            {/* ================================================= */}
+                            {/* SECTION 2: RESPONSE VALUES & BODY                 */}
+                            {/* ================================================= */}
+                            {inspectorSection === 'response' && (
+                              <div className="space-y-2.5">
                                 {!activeLog.responseBody ? (
                                   <div className="text-rf-5 font-sans text-xs py-6 text-center">
                                     {t.inspectorEmpty}
                                   </div>
                                 ) : (
                                   <>
-                                    <div className="flex justify-end">
-                                      <button
-                                        onClick={() => {
-                                          navigator.clipboard.writeText(activeLog.responseBody || '');
-                                          showToast('Copied');
-                                        }}
-                                        className="h-5 px-2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[10px] font-sans text-rf-3"
-                                      >
-                                        {t.inspectorCopyBody}
-                                      </button>
+                                    {(() => {
+                                      const resFields = extractResponseFields(
+                                        activeLog.responseBody
+                                      );
+                                      if (resFields.length === 0) return null;
+                                      return (
+                                        <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-1.5">
+                                          <div className="text-[10px] font-sans font-semibold text-rf-2">
+                                            📥 {t.inspectorResponseFields}
+                                          </div>
+                                          <div className="divide-y divide-rf-border/50 rounded border border-rf-border bg-rf-deep overflow-hidden">
+                                            {resFields.map((f, idx) => (
+                                              <div
+                                                key={`${f.key}-${idx}`}
+                                                className="flex items-start justify-between gap-2 px-2 py-1.5 hover:bg-rf-input/40"
+                                              >
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                  <span className="text-rf-1 font-semibold">
+                                                    {f.key}
+                                                  </span>
+                                                  <span className="text-[9px] text-rf-5">
+                                                    ({f.valueType})
+                                                  </span>
+                                                </div>
+                                                <span
+                                                  className={`break-all text-right ${valueTypeColor(
+                                                    f.valueType
+                                                  )}`}
+                                                >
+                                                  {f.value}
+                                                </span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      );
+                                    })()}
+
+                                    <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-1.5">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-[10px] font-sans font-semibold text-rf-2">
+                                          {t.inspectorResBody}
+                                        </span>
+                                        <button
+                                          onClick={() => {
+                                            navigator.clipboard.writeText(
+                                              activeLog.responseBody || ''
+                                            );
+                                            showToast('Copied');
+                                          }}
+                                          className="h-5 px-2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[9px] font-sans text-rf-3"
+                                        >
+                                          {t.inspectorCopyBody}
+                                        </button>
+                                      </div>
+                                      <pre className="p-2.5 rounded bg-rf-deep border border-rf-border text-emerald-300 whitespace-pre-wrap break-all leading-relaxed">
+                                        {formatPretty(activeLog.responseBody)}
+                                      </pre>
                                     </div>
-                                    <pre className="p-2.5 rounded bg-rf-deep border border-rf-border text-emerald-300 whitespace-pre-wrap break-all leading-relaxed">
-                                      {formatPretty(activeLog.responseBody)}
-                                    </pre>
                                   </>
                                 )}
+                              </div>
+                            )}
+
+                            {/* ================================================= */}
+                            {/* SECTION 3: REQUEST / RESPONSE HEADERS & CURL      */}
+                            {/* ================================================= */}
+                            {inspectorSection === 'headers' && (
+                              <div className="space-y-3">
+                                <div className="space-y-1">
+                                  <div className="text-[10px] font-sans font-semibold text-rf-3">
+                                    {t.inspectorReqHeaders} (
+                                    {Object.keys(activeLog.requestHeaders || {}).length})
+                                  </div>
+                                  {!activeLog.requestHeaders ||
+                                  Object.keys(activeLog.requestHeaders).length === 0 ? (
+                                    <div className="text-rf-5 font-sans text-xs py-2">
+                                      {t.inspectorEmpty}
+                                    </div>
+                                  ) : (
+                                    Object.entries(activeLog.requestHeaders).map(([k, v]) => (
+                                      <div
+                                        key={k}
+                                        className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded bg-rf-raised border border-rf-border"
+                                      >
+                                        <div className="min-w-0 flex-1">
+                                          <span className="text-blue-300 font-semibold">
+                                            {k}:{' '}
+                                          </span>
+                                          <span className="text-rf-2 break-all">{v}</span>
+                                        </div>
+                                        <button
+                                          onClick={() => {
+                                            addHeaderRule(k, v, 'request', 'set');
+                                            showToast(`+ ${k}`);
+                                          }}
+                                          className="h-5 px-1.5 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[9px] font-sans text-rf-3 shrink-0"
+                                        >
+                                          {t.inspectorAddAsHeaderRule}
+                                        </button>
+                                      </div>
+                                    ))
+                                  )}
+                                </div>
+
+                                <div className="space-y-1">
+                                  <div className="text-[10px] font-sans font-semibold text-rf-3">
+                                    {t.inspectorResHeaders} (
+                                    {Object.keys(activeLog.responseHeaders || {}).length})
+                                  </div>
+                                  {!activeLog.responseHeaders ||
+                                  Object.keys(activeLog.responseHeaders).length === 0 ? (
+                                    <div className="text-rf-5 font-sans text-xs py-2">
+                                      {t.inspectorEmpty}
+                                    </div>
+                                  ) : (
+                                    Object.entries(activeLog.responseHeaders).map(([k, v]) => (
+                                      <div
+                                        key={k}
+                                        className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded bg-rf-raised border border-rf-border"
+                                      >
+                                        <div className="min-w-0 flex-1">
+                                          <span className="text-purple-300 font-semibold">
+                                            {k}:{' '}
+                                          </span>
+                                          <span className="text-rf-2 break-all">{v}</span>
+                                        </div>
+                                        <button
+                                          onClick={() => {
+                                            addHeaderRule(k, v, 'response', 'set');
+                                            showToast(`+ ${k}`);
+                                          }}
+                                          className="h-5 px-1.5 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[9px] font-sans text-rf-3 shrink-0"
+                                        >
+                                          {t.inspectorAddAsHeaderRule}
+                                        </button>
+                                      </div>
+                                    ))
+                                  )}
+                                </div>
                               </div>
                             )}
                           </div>

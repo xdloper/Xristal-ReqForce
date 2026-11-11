@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-11-11
+
+### Added
+- **Outgoing Values & Channel Inspector**:
+  - Flattened `Key → Value (type)` table for outgoing `Body` (JSON, FormData, URLSearchParams), `Query`, `Header`, and `Cookie` channels with instant channel filtering.
+  - Inline **JWT Decoder** inside Token & Auth Radar and `navigator.sendBeacon` capture alongside `fetch` and `XHR`.
+  - Side-by-side **Original vs. Sent** diff when ReqForce mutates an outgoing request body.
+  - Flattened response field viewer plus one-click **+ Mock Response**, **+ Override Request**, and **Copy cURL** actions directly from any captured request.
+
+### Changed
+- Rewrote `README.md` to be concise, clean, and focused on core capabilities.
+
 ## [1.5.0] - 2026-11-11
 
 ### Added

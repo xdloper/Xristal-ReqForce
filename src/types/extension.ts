@@ -67,16 +67,35 @@ export interface Profile {
 
 export type TokenChannel = 'header' | 'body' | 'query' | 'cookie';
 
+export type OutgoingValueType =
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'array'
+  | 'object'
+  | 'null'
+  | 'file';
+
+export interface OutgoingField {
+  channel: TokenChannel;
+  key: string;
+  value: string;
+  valueType: OutgoingValueType;
+}
+
 export interface TokenTrace {
   channel: TokenChannel;
   key: string;
   preview: string;
+  rawValue?: string;
+  jwtDecoded?: Record<string, unknown>;
 }
 
 export interface InterceptLogEntry {
   id: string;
   timestamp: number;
   type: 'TRAFFIC' | 'HEADER' | 'BODY_REQ' | 'BODY_RES' | 'TELEPRESENCE' | 'REDIRECT';
+  transport?: 'fetch' | 'xhr' | 'beacon';
   method: string;
   /** Target request URL */
   url: string;
@@ -84,6 +103,9 @@ export interface InterceptLogEntry {
   pageUrl?: string;
   pageOrigin?: string;
   targetHost?: string;
+  pathname?: string;
+  contentType?: string;
+  responseContentType?: string;
   ruleName: string;
   details: string;
   status?: number;
@@ -92,8 +114,11 @@ export interface InterceptLogEntry {
   requestHeaders?: Record<string, string>;
   responseHeaders?: Record<string, string>;
   requestBody?: string;
+  originalRequestBody?: string;
   responseBody?: string;
   queryParams?: Record<string, string>;
+  cookies?: Record<string, string>;
+  outgoingFields?: OutgoingField[];
   credentials?: string;
   tokens?: TokenTrace[];
 }

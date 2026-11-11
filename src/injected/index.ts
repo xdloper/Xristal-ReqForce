@@ -2,6 +2,8 @@ import {
   BodyRule,
   ExtensionState,
   HeaderRule,
+  OutgoingField,
+  OutgoingValueType,
   Profile,
   TokenTrace,
 } from '../types/extension';
@@ -13,7 +15,7 @@ import {
   (window as unknown as { __REQFORCE_INSTALLED__?: boolean }).__REQFORCE_INSTALLED__ = true;
 
   let currentState: ExtensionState | null = null;
-  const MAX_BODY_CHARS = 4000;
+  const MAX_BODY_CHARS = 6000;
 
   function getActiveProfile(): Profile | null {
     if (!currentState || !currentState.globalEnabled) return null;
@@ -25,7 +27,7 @@ import {
   }
 
   function trafficMonitorOn(): boolean {
-    return Boolean(currentState?.trafficMonitorEnabled);
+    return currentState ? currentState.trafficMonitorEnabled !== false : true;
   }
 
   function cap(text: string | undefined): string | undefined {
@@ -35,9 +37,32 @@ import {
       : text;
   }
 
+  function tryDecodeJwt(val: string): Record<string, unknown> | undefined {
+    const clean = val.trim().replace(/^bearer\s+/i, '').trim();
+    const parts = clean.split('.');
+    if (parts.length !== 3 || !parts[0].startsWith('eyJ')) return undefined;
+    try {
+      const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const padded = base64.padEnd(
+        base64.length + ((4 - (base64.length % 4)) % 4),
+        '='
+      );
+      const jsonStr = decodeURIComponent(
+        atob(padded)
+          .split('')
+          .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+          .join('')
+      );
+      const parsed = JSON.parse(jsonStr);
+      return typeof parsed === 'object' && parsed !== null ? parsed : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   function maskSecret(val: string): string {
     const v = val.trim();
-    if (v.length <= 12) return v;
+    if (v.length <= 16) return v;
     if (/^bearer\s+/i.test(v)) {
       const tok = v.replace(/^bearer\s+/i, '');
       return `Bearer ${tok.slice(0, 10)}…${tok.slice(-4)} (${tok.length}c)`;
@@ -45,16 +70,38 @@ import {
     if (v.split('.').length === 3 && v.startsWith('eyJ')) {
       return `JWT ${v.slice(0, 10)}…${v.slice(-4)} (${v.length}c)`;
     }
-    return `${v.slice(0, 8)}…${v.slice(-4)} (${v.length}c)`;
+    return `${v.slice(0, 10)}…${v.slice(-4)} (${v.length}c)`;
   }
 
   const TOKEN_KEY_RE =
-    /(authorization|auth|token|jwt|bearer|api[-_]?key|access[-_]?token|refresh[-_]?token|id[-_]?token|session|csrf|xsrf|secret|signature)/i;
+    /(authorization|auth|token|jwt|bearer|api[-_]?key|access[-_]?token|refresh[-_]?token|id[-_]?token|session|csrf|xsrf|secret|signature|client[-_]?secret)/i;
+
+  function parseDocumentCookies(): Record<string, string> {
+    const out: Record<string, string> = {};
+    try {
+      const raw = typeof document !== 'undefined' ? document.cookie : '';
+      if (!raw) return out;
+      for (const part of raw.split(';')) {
+        const trimmed = part.trim();
+        if (!trimmed) continue;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx > 0) {
+          const k = trimmed.slice(0, eqIdx).trim();
+          const v = trimmed.slice(eqIdx + 1).trim();
+          out[k] = v;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return out;
+  }
 
   function detectTokens(
     reqHeaders: Record<string, string>,
     queryParams: Record<string, string>,
     reqBody: string | undefined,
+    cookies: Record<string, string>,
     credentials: string
   ): TokenTrace[] {
     const traces: TokenTrace[] = [];
@@ -66,7 +113,13 @@ import {
         /^bearer\s+/i.test(v) ||
         (v.startsWith('eyJ') && v.split('.').length === 3)
       ) {
-        traces.push({ channel: 'header', key: k, preview: maskSecret(v) });
+        traces.push({
+          channel: 'header',
+          key: k,
+          preview: maskSecret(v),
+          rawValue: v,
+          jwtDecoded: tryDecodeJwt(v),
+        });
       }
     }
 
@@ -76,7 +129,13 @@ import {
         TOKEN_KEY_RE.test(k) ||
         (v.startsWith('eyJ') && v.split('.').length === 3)
       ) {
-        traces.push({ channel: 'query', key: k, preview: maskSecret(v) });
+        traces.push({
+          channel: 'query',
+          key: k,
+          preview: maskSecret(v),
+          rawValue: v,
+          jwtDecoded: tryDecodeJwt(v),
+        });
       }
     }
 
@@ -98,6 +157,8 @@ import {
                   channel: 'body',
                   key: path,
                   preview: maskSecret(v),
+                  rawValue: v,
+                  jwtDecoded: tryDecodeJwt(v),
                 });
               }
             } else if (typeof v === 'object' && v !== null) {
@@ -112,8 +173,14 @@ import {
           try {
             const sp = new URLSearchParams(reqBody);
             sp.forEach((v, k) => {
-              if (TOKEN_KEY_RE.test(k)) {
-                traces.push({ channel: 'body', key: k, preview: maskSecret(v) });
+              if (TOKEN_KEY_RE.test(k) || (v.startsWith('eyJ') && v.split('.').length === 3)) {
+                traces.push({
+                  channel: 'body',
+                  key: k,
+                  preview: maskSecret(v),
+                  rawValue: v,
+                  jwtDecoded: tryDecodeJwt(v),
+                });
               }
             });
           } catch {
@@ -123,40 +190,204 @@ import {
       }
     }
 
-    // 4. Cookies (credentials mode + visible document.cookie keys)
-    try {
-      const rawCookie = typeof document !== 'undefined' ? document.cookie : '';
-      const cookieNames = rawCookie
-        ? rawCookie
-            .split(';')
-            .map((c) => c.trim().split('=')[0])
-            .filter(Boolean)
-        : [];
-      const authCookies = cookieNames.filter((n) => TOKEN_KEY_RE.test(n));
-      if (authCookies.length > 0) {
+    // 4. Cookies
+    const cookieEntries = Object.entries(cookies);
+    for (const [k, v] of cookieEntries) {
+      if (TOKEN_KEY_RE.test(k) || (v.startsWith('eyJ') && v.split('.').length === 3)) {
         traces.push({
           channel: 'cookie',
-          key: authCookies.join(', '),
-          preview: `credentials=${credentials}`,
-        });
-      } else if (credentials === 'include') {
-        traces.push({
-          channel: 'cookie',
-          key: 'credentials: include',
-          preview: cookieNames.length
-            ? `${cookieNames.length} JS cookie(s) + HttpOnly`
-            : 'HttpOnly / cross-origin cookies sent',
+          key: k,
+          preview: maskSecret(v),
+          rawValue: v,
+          jwtDecoded: tryDecodeJwt(v),
         });
       }
-    } catch {
-      // ignore
+    }
+    if (
+      credentials === 'include' &&
+      !traces.some((t) => t.channel === 'cookie')
+    ) {
+      traces.push({
+        channel: 'cookie',
+        key: 'credentials: include',
+        preview: cookieEntries.length
+          ? `${cookieEntries.length} cookie + HttpOnly`
+          : 'HttpOnly / cross-origin cookies',
+      });
     }
 
     return traces;
   }
 
+  function extractOutgoingFields(
+    queryParams: Record<string, string>,
+    reqBody: string | undefined,
+    reqHeaders: Record<string, string>,
+    cookies: Record<string, string>
+  ): OutgoingField[] {
+    const fields: OutgoingField[] = [];
+
+    // 1. Query Params
+    for (const [k, v] of Object.entries(queryParams)) {
+      fields.push({
+        channel: 'query',
+        key: k,
+        value: v,
+        valueType: 'string',
+      });
+    }
+
+    // 2. Request Body (JSON, URLSearchParams, FormData, or Raw)
+    if (reqBody && reqBody.trim()) {
+      let parsedJson = false;
+      try {
+        const parsed = JSON.parse(reqBody);
+        parsedJson = true;
+        const flatten = (val: unknown, path: string, depth: number) => {
+          if (fields.length > 60) return;
+          if (val === null) {
+            fields.push({
+              channel: 'body',
+              key: path || '(root)',
+              value: 'null',
+              valueType: 'null',
+            });
+            return;
+          }
+          if (Array.isArray(val)) {
+            if (val.length === 0 || depth >= 3) {
+              fields.push({
+                channel: 'body',
+                key: path || '(array)',
+                value: JSON.stringify(val),
+                valueType: 'array',
+              });
+            } else {
+              val.slice(0, 15).forEach((item, idx) => {
+                flatten(item, `${path}[${idx}]`, depth + 1);
+              });
+            }
+            return;
+          }
+          if (typeof val === 'object') {
+            const entries = Object.entries(val as Record<string, unknown>);
+            if (entries.length === 0 || depth >= 3) {
+              fields.push({
+                channel: 'body',
+                key: path || '(object)',
+                value: JSON.stringify(val),
+                valueType: 'object',
+              });
+            } else {
+              for (const [k, v] of entries) {
+                flatten(v, path ? `${path}.${k}` : k, depth + 1);
+              }
+            }
+            return;
+          }
+          const t = typeof val;
+          const vType: OutgoingValueType =
+            t === 'number'
+              ? 'number'
+              : t === 'boolean'
+              ? 'boolean'
+              : 'string';
+          fields.push({
+            channel: 'body',
+            key: path || '(value)',
+            value: String(val),
+            valueType: vType,
+          });
+        };
+        flatten(parsed, '', 0);
+      } catch {
+        parsedJson = false;
+      }
+
+      if (!parsedJson) {
+        if (reqBody.includes('=') && !reqBody.trim().startsWith('<')) {
+          try {
+            const sp = new URLSearchParams(reqBody);
+            let added = false;
+            sp.forEach((v, k) => {
+              added = true;
+              fields.push({
+                channel: 'body',
+                key: k,
+                value: v,
+                valueType: v.startsWith('[File') ? 'file' : 'string',
+              });
+            });
+            if (!added) {
+              fields.push({
+                channel: 'body',
+                key: '(raw)',
+                value: reqBody.slice(0, 500),
+                valueType: 'string',
+              });
+            }
+          } catch {
+            fields.push({
+              channel: 'body',
+              key: '(raw)',
+              value: reqBody.slice(0, 500),
+              valueType: 'string',
+            });
+          }
+        } else {
+          fields.push({
+            channel: 'body',
+            key: '(raw)',
+            value: reqBody.slice(0, 500),
+            valueType: 'string',
+          });
+        }
+      }
+    }
+
+    // 3. Custom / Auth / Important Request Headers
+    const noisyHeaders = new Set([
+      'accept',
+      'accept-language',
+      'accept-encoding',
+      'user-agent',
+      'sec-ch-ua',
+      'sec-ch-ua-mobile',
+      'sec-ch-ua-platform',
+      'sec-fetch-dest',
+      'sec-fetch-mode',
+      'sec-fetch-site',
+      'connection',
+      'cache-control',
+      'pragma',
+    ]);
+    for (const [k, v] of Object.entries(reqHeaders)) {
+      if (!noisyHeaders.has(k.toLowerCase())) {
+        fields.push({
+          channel: 'header',
+          key: k,
+          value: v,
+          valueType: 'string',
+        });
+      }
+    }
+
+    // 4. Cookies
+    for (const [k, v] of Object.entries(cookies)) {
+      fields.push({
+        channel: 'cookie',
+        key: k,
+        value: v,
+        valueType: 'string',
+      });
+    }
+
+    return fields;
+  }
+
   function parseUrlParts(rawUrl: string): {
     targetHost: string;
+    pathname: string;
     queryParams: Record<string, string>;
   } {
     const queryParams: Record<string, string> = {};
@@ -165,9 +396,13 @@ import {
       u.searchParams.forEach((v, k) => {
         queryParams[k] = v;
       });
-      return { targetHost: u.host, queryParams };
+      return {
+        targetHost: u.host,
+        pathname: u.pathname || '/',
+        queryParams,
+      };
     } catch {
-      return { targetHost: '', queryParams };
+      return { targetHost: '', pathname: rawUrl, queryParams };
     }
   }
 
@@ -185,8 +420,21 @@ import {
     return out;
   }
 
+  function getHeaderCaseInsensitive(
+    headers: Record<string, string> | undefined,
+    target: string
+  ): string | undefined {
+    if (!headers) return undefined;
+    const lower = target.toLowerCase();
+    for (const [k, v] of Object.entries(headers)) {
+      if (k.toLowerCase() === lower) return v;
+    }
+    return undefined;
+  }
+
   function emitLog(entry: {
     type: 'TRAFFIC' | 'HEADER' | 'BODY_REQ' | 'BODY_RES' | 'TELEPRESENCE' | 'REDIRECT';
+    transport?: 'fetch' | 'xhr' | 'beacon';
     method: string;
     url: string;
     ruleName: string;
@@ -197,13 +445,38 @@ import {
     requestHeaders?: Record<string, string>;
     responseHeaders?: Record<string, string>;
     requestBody?: string;
+    originalRequestBody?: string;
     responseBody?: string;
     credentials?: string;
   }) {
-    const { targetHost, queryParams } = parseUrlParts(entry.url);
+    const { targetHost, pathname, queryParams } = parseUrlParts(entry.url);
     const reqHeaders = entry.requestHeaders || {};
+    const resHeaders = entry.responseHeaders || {};
     const creds = entry.credentials || 'same-origin';
-    const tokens = detectTokens(reqHeaders, queryParams, entry.requestBody, creds);
+    const isSameOrigin =
+      !targetHost || targetHost === window.location.host;
+    const cookies =
+      creds === 'include' || (creds === 'same-origin' && isSameOrigin)
+        ? parseDocumentCookies()
+        : {};
+    const tokens = detectTokens(
+      reqHeaders,
+      queryParams,
+      entry.requestBody,
+      cookies,
+      creds
+    );
+    const outgoingFields = extractOutgoingFields(
+      queryParams,
+      entry.requestBody,
+      reqHeaders,
+      cookies
+    );
+    const contentType = getHeaderCaseInsensitive(reqHeaders, 'content-type');
+    const responseContentType = getHeaderCaseInsensitive(
+      resHeaders,
+      'content-type'
+    );
 
     window.postMessage(
       {
@@ -213,12 +486,23 @@ import {
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           timestamp: Date.now(),
           ...entry,
+          transport: entry.transport || 'fetch',
           method: (entry.method || 'GET').toUpperCase(),
           pageUrl: window.location.href,
           pageOrigin: window.location.origin,
           targetHost,
+          pathname,
+          contentType,
+          responseContentType,
           queryParams: Object.keys(queryParams).length ? queryParams : undefined,
+          cookies: Object.keys(cookies).length ? cookies : undefined,
+          outgoingFields: outgoingFields.length ? outgoingFields : undefined,
           requestBody: cap(entry.requestBody),
+          originalRequestBody:
+            entry.originalRequestBody &&
+            entry.originalRequestBody !== entry.requestBody
+              ? cap(entry.originalRequestBody)
+              : undefined,
           responseBody: cap(entry.responseBody),
           tokens: tokens.length ? tokens : undefined,
         },
@@ -370,16 +654,28 @@ import {
     }
   }
 
-  function extractInitBodyString(body?: BodyInit | null): string | undefined {
+  function extractInitBodyString(body?: BodyInit | Document | null): string | undefined {
     if (!body) return undefined;
     if (typeof body === 'string') return body;
     if (body instanceof URLSearchParams) return body.toString();
     if (typeof FormData !== 'undefined' && body instanceof FormData) {
       const parts: string[] = [];
       body.forEach((v, k) => {
-        parts.push(`${k}=${typeof v === 'string' ? v : '[File]'}`);
+        if (typeof v === 'string') {
+          parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+        } else {
+          const f = v as File;
+          parts.push(`${encodeURIComponent(k)}=[File:${f.name || 'blob'}(${f.size || 0}B)]`);
+        }
       });
       return parts.join('&');
+    }
+    if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) {
+      try {
+        return new TextDecoder().decode(body as BufferSource);
+      } catch {
+        return `[Binary ${(body as ArrayBuffer).byteLength || 0}B]`;
+      }
     }
     return undefined;
   }
@@ -392,6 +688,7 @@ import {
         ct.includes('text/') ||
         ct.includes('xml') ||
         ct.includes('javascript') ||
+        ct.includes('urlencoded') ||
         ct === ''
       ) {
         return await res.clone().text();
@@ -413,12 +710,27 @@ import {
   ): Promise<Response> {
     const t0 = performance.now();
     const fullUrl = resolveUrl(input);
-    const method =
+    const method = (
       init?.method ||
       (input instanceof Request ? input.method : 'GET') ||
-      'GET';
+      'GET'
+    ).toUpperCase();
 
-    const rawReqBody = extractInitBodyString(init?.body);
+    let rawReqBody = extractInitBodyString(init?.body);
+    if (
+      !rawReqBody &&
+      input instanceof Request &&
+      init?.body == null &&
+      method !== 'GET' &&
+      method !== 'HEAD'
+    ) {
+      try {
+        rawReqBody = await input.clone().text();
+      } catch {
+        rawReqBody = undefined;
+      }
+    }
+
     const initHeaders = headersToRecord(
       init?.headers || (input instanceof Request ? input.headers : undefined)
     );
@@ -434,6 +746,7 @@ import {
         const resBody = await readResponsePreview(res);
         emitLog({
           type: 'TRAFFIC',
+          transport: 'fetch',
           method,
           url: fullUrl,
           ruleName: 'passthrough',
@@ -467,6 +780,7 @@ import {
         const resBody = await readResponsePreview(res);
         emitLog({
           type: 'TRAFFIC',
+          transport: 'fetch',
           method,
           url: fullUrl,
           ruleName: '—',
@@ -512,13 +826,6 @@ import {
     let sentBodyText = rawReqBody;
     if (reqRules.length > 0) {
       let bodyText = rawReqBody || '';
-      if (!bodyText && input instanceof Request && baseInit.body == null) {
-        try {
-          bodyText = await input.clone().text();
-        } catch {
-          bodyText = '';
-        }
-      }
       for (const rule of reqRules) {
         if (rule.delayMs && rule.delayMs > 0) await sleep(rule.delayMs);
         bodyText = transformBodyText(bodyText, rule);
@@ -537,6 +844,7 @@ import {
       const status = fullReplaceRule.statusCode || 200;
       emitLog({
         type: 'BODY_RES',
+        transport: 'fetch',
         method,
         url: fullUrl,
         ruleName: fullReplaceRule.name || fullReplaceRule.urlPattern,
@@ -546,6 +854,7 @@ import {
         mutated: true,
         requestHeaders: finalReqHeaders,
         requestBody: sentBodyText,
+        originalRequestBody: rawReqBody,
         responseBody: fullReplaceRule.bodyContent,
         credentials: cred,
       });
@@ -574,6 +883,7 @@ import {
         }
         emitLog({
           type: 'BODY_RES',
+          transport: 'fetch',
           method,
           url: fullUrl,
           ruleName: mergeResRules.map((r) => r.name || r.urlPattern).join(', '),
@@ -584,6 +894,7 @@ import {
           requestHeaders: finalReqHeaders,
           responseHeaders: headersToRecord(response.headers),
           requestBody: sentBodyText,
+          originalRequestBody: rawReqBody,
           responseBody: resText,
           credentials: cred,
         });
@@ -603,6 +914,7 @@ import {
       const resBody = await readResponsePreview(response);
       emitLog({
         type: reqRules.length > 0 ? 'BODY_REQ' : matchingHeaders.length > 0 ? 'HEADER' : 'TRAFFIC',
+        transport: 'fetch',
         method,
         url: fullUrl,
         ruleName:
@@ -614,6 +926,7 @@ import {
         requestHeaders: finalReqHeaders,
         responseHeaders: headersToRecord(response.headers),
         requestBody: sentBodyText,
+        originalRequestBody: rawReqBody,
         responseBody: resBody,
         credentials: cred,
       });
@@ -687,7 +1000,7 @@ import {
 
     send(body?: Document | XMLHttpRequestBodyInit | null): void {
       this._t0 = performance.now();
-      const rawBody = typeof body === 'string' ? body : undefined;
+      const rawBody = extractInitBodyString(body as BodyInit | Document | null);
       const credMode = this.withCredentials ? 'include' : 'same-origin';
       const profile = getActiveProfile();
 
@@ -696,6 +1009,7 @@ import {
           this.addEventListener('loadend', () => {
             emitLog({
               type: 'TRAFFIC',
+              transport: 'xhr',
               method: this._method,
               url: this._url,
               ruleName: 'passthrough',
@@ -723,6 +1037,7 @@ import {
           this.addEventListener('loadend', () => {
             emitLog({
               type: 'TRAFFIC',
+              transport: 'xhr',
               method: this._method,
               url: this._url,
               ruleName: '—',
@@ -807,6 +1122,7 @@ import {
             });
             emitLog({
               type: 'BODY_RES',
+              transport: 'xhr',
               method: this._method,
               url: this._url,
               ruleName: resRules.map((r) => r.name || r.urlPattern).join(', '),
@@ -817,6 +1133,7 @@ import {
               requestHeaders: this._reqHeaders,
               responseHeaders: this._parseResHeaders(),
               requestBody: sentText,
+              originalRequestBody: rawBody,
               responseBody: modifiedText,
               credentials: credMode,
             });
@@ -828,6 +1145,7 @@ import {
         this.addEventListener('loadend', () => {
           emitLog({
             type: reqRules.length > 0 ? 'BODY_REQ' : matchingHeaders.length > 0 ? 'HEADER' : 'TRAFFIC',
+            transport: 'xhr',
             method: this._method,
             url: this._url,
             ruleName:
@@ -839,6 +1157,7 @@ import {
             requestHeaders: this._reqHeaders,
             responseHeaders: this._parseResHeaders(),
             requestBody: sentText,
+            originalRequestBody: rawBody,
             responseBody: this._safeResText(),
             credentials: credMode,
           });
@@ -850,6 +1169,34 @@ import {
   }
 
   window.XMLHttpRequest = ManipulatedXHR;
+
+  // ============================================================================
+  // BEACON — capture navigator.sendBeacon outgoing payloads
+  // ============================================================================
+  if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+    const origBeacon = navigator.sendBeacon.bind(navigator);
+    navigator.sendBeacon = function (url: string | URL, data?: BodyInit | null): boolean {
+      const ok = origBeacon(url, data);
+      if (trafficMonitorOn()) {
+        const fullUrl = resolveUrl(url);
+        const rawBody = extractInitBodyString(data);
+        emitLog({
+          type: 'TRAFFIC',
+          transport: 'beacon',
+          method: 'POST',
+          url: fullUrl,
+          ruleName: 'beacon',
+          details: ok ? 'Beacon queued' : 'Beacon rejected',
+          status: ok ? 204 : 0,
+          durationMs: 0,
+          mutated: false,
+          requestBody: rawBody,
+          credentials: 'include',
+        });
+      }
+      return ok;
+    };
+  }
 
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;

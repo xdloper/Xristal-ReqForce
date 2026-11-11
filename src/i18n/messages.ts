@@ -99,6 +99,20 @@ export type Messages = {
   inspectorEmpty: string;
   inspectorAddAsHeaderRule: string;
   inspectorCopyBody: string;
+  inspectorTabOutgoing: string;
+  inspectorTabResponse: string;
+  inspectorTabHeadersRaw: string;
+  inspectorHowItGoes: string;
+  inspectorOutgoingValues: string;
+  inspectorNoOutgoingValues: string;
+  inspectorDecodedJwt: string;
+  inspectorMockThisResponse: string;
+  inspectorOverrideRequestBody: string;
+  inspectorCopyCurl: string;
+  inspectorOriginalVsMutated: string;
+  inspectorShowRawJson: string;
+  inspectorResponseFields: string;
+  inspectorFilterChannelAll: string;
   tabScope: string;
   curlModalTitle: string;
   curlModalHint: string;
@@ -248,6 +262,20 @@ export const en: Messages = {
   inspectorEmpty: 'Empty',
   inspectorAddAsHeaderRule: '+ Rule',
   inspectorCopyBody: 'Copy',
+  inspectorTabOutgoing: 'Outgoing Values',
+  inspectorTabResponse: 'Response',
+  inspectorTabHeadersRaw: 'Headers & cURL',
+  inspectorHowItGoes: 'How It Travels & Channels',
+  inspectorOutgoingValues: 'Outgoing Values (Key → Value)',
+  inspectorNoOutgoingValues: 'No query, body, or custom header parameters were sent in this request.',
+  inspectorDecodedJwt: 'Decoded JWT Payload',
+  inspectorMockThisResponse: 'Mock Response',
+  inspectorOverrideRequestBody: 'Override Request',
+  inspectorCopyCurl: 'Copy cURL',
+  inspectorOriginalVsMutated: 'ReqForce Mutation (Original → Sent)',
+  inspectorShowRawJson: 'Raw Payload',
+  inspectorResponseFields: 'Response Fields (Key → Value)',
+  inspectorFilterChannelAll: 'All',
   tabScope: 'Tab Scope',
   curlModalTitle: 'Import Rules from cURL',
   curlModalHint:
@@ -398,6 +426,20 @@ export const tr: Messages = {
   inspectorEmpty: 'Boş',
   inspectorAddAsHeaderRule: '+ Kural',
   inspectorCopyBody: 'Kopyala',
+  inspectorTabOutgoing: 'Giden Değerler',
+  inspectorTabResponse: 'Dönen Yanıt',
+  inspectorTabHeadersRaw: 'Header & cURL',
+  inspectorHowItGoes: 'Nasıl Gidiyor & Kanal Özeti',
+  inspectorOutgoingValues: 'Giden Değerlerin İçi (Anahtar → Değer)',
+  inspectorNoOutgoingValues: 'Bu istekte query, body veya özel header verisi gönderilmedi.',
+  inspectorDecodedJwt: 'Çözümlenen JWT İçeriği',
+  inspectorMockThisResponse: 'Yanıtı Mockla',
+  inspectorOverrideRequestBody: 'Giden Body’yi Değiştir',
+  inspectorCopyCurl: 'cURL Kopyala',
+  inspectorOriginalVsMutated: 'ReqForce Değişimi (Orijinal → Gönderilen)',
+  inspectorShowRawJson: 'Ham Payload',
+  inspectorResponseFields: 'Dönen Yanıt Değerleri (Anahtar → Değer)',
+  inspectorFilterChannelAll: 'Tümü',
   tabScope: 'Sekme Kapsamı',
   curlModalTitle: 'cURL’den Kural İçe Aktar',
   curlModalHint:
