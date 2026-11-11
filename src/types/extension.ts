@@ -65,12 +65,11 @@ export interface Profile {
   redirectCorsRules: RedirectCorsRule[];
 }
 
-export type AuthCarrierLocation = 'header' | 'body' | 'query' | 'cookie';
+export type TokenChannel = 'header' | 'body' | 'query' | 'cookie';
 
-export interface AuthCarrierInfo {
-  location: AuthCarrierLocation;
+export interface TokenTrace {
+  channel: TokenChannel;
   key: string;
-  scheme?: string;
   preview: string;
 }
 
@@ -79,8 +78,12 @@ export interface InterceptLogEntry {
   timestamp: number;
   type: 'TRAFFIC' | 'HEADER' | 'BODY_REQ' | 'BODY_RES' | 'TELEPRESENCE' | 'REDIRECT';
   method: string;
+  /** Target request URL */
   url: string;
+  /** Source page URL where the request originated */
   pageUrl?: string;
+  pageOrigin?: string;
+  targetHost?: string;
   ruleName: string;
   details: string;
   status?: number;
@@ -88,11 +91,11 @@ export interface InterceptLogEntry {
   mutated?: boolean;
   requestHeaders?: Record<string, string>;
   responseHeaders?: Record<string, string>;
-  queryParams?: Record<string, string>;
   requestBody?: string;
-  responsePreview?: string;
+  responseBody?: string;
+  queryParams?: Record<string, string>;
   credentials?: string;
-  authCarriers?: AuthCarrierInfo[];
+  tokens?: TokenTrace[];
 }
 
 export type LocalePreference = 'system' | 'en' | 'tr';

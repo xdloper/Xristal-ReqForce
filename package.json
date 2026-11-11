@@ -1,12 +1,12 @@
 {
-  "name": "xristal-reqforce",
+  "name": "dev-browser-manipulations",
   "private": true,
-  "version": "1.5.1",
+  "version": "1.5.0",
   "author": "Xristal <xristaltech@gmail.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/xdloper/Xristal-ReqForce.git"
+    "url": "https://github.com/xdloper/dev-browser-manipulations.git"
   },
   "description": "ReqForge — HTTP Header, Body & Network Manipulator by Xristal",
   "type": "module",

@@ -81,27 +81,24 @@ export type Messages = {
   clear: string;
   inspectorHint: string;
   noTraffic: string;
-  inspectorFilterPlaceholder: string;
+  inspectorSearchPlaceholder: string;
   inspectorFilterAll: string;
-  inspectorFilterAuth: string;
-  inspectorFilterHeaderAuth: string;
-  inspectorFilterBodyAuth: string;
-  inspectorFilterQueryAuth: string;
-  inspectorFilterCookieAuth: string;
+  inspectorFilterTokens: string;
   inspectorFilterMutated: string;
+  inspectorFilterErrors: string;
   inspectorSelectHint: string;
-  inspectorPageOrigin: string;
+  inspectorSourcePage: string;
   inspectorTargetUrl: string;
-  inspectorAuthTitle: string;
-  inspectorNoAuthDetected: string;
+  inspectorTokenRadar: string;
+  inspectorNoTokens: string;
   inspectorReqHeaders: string;
   inspectorResHeaders: string;
   inspectorQueryParams: string;
   inspectorReqBody: string;
-  inspectorResPreview: string;
-  inspectorCreateHeaderRule: string;
-  inspectorCreateBodyRule: string;
-  inspectorRuleCreated: string;
+  inspectorResBody: string;
+  inspectorEmpty: string;
+  inspectorAddAsHeaderRule: string;
+  inspectorCopyBody: string;
   tabScope: string;
   curlModalTitle: string;
   curlModalHint: string;
@@ -231,29 +228,26 @@ export const en: Messages = {
   refresh: 'Refresh',
   clear: 'Clear',
   inspectorHint:
-    'Shows what the page is sending (method, URL, status, credentials mode, visible headers). Mutated requests are highlighted — disable the matching rule if a site breaks.',
+    'Page → API flow, headers, bodies & token radar (Header / Body / Query / Cookie).',
   noTraffic: 'No traffic captured yet. Open a page, click around, then Refresh.',
-  inspectorFilterPlaceholder: 'Search URL, header, body, token key...',
+  inspectorSearchPlaceholder: 'Search URL, header, body, token...',
   inspectorFilterAll: 'All',
-  inspectorFilterAuth: 'Has Token/Auth',
-  inspectorFilterHeaderAuth: 'Auth in Header',
-  inspectorFilterBodyAuth: 'Auth in Body',
-  inspectorFilterQueryAuth: 'Auth in Query',
-  inspectorFilterCookieAuth: 'Cookie',
+  inspectorFilterTokens: 'Has Token',
   inspectorFilterMutated: 'Mutated',
-  inspectorSelectHint: 'Select a request on the left to inspect Page → Target flow, token carriers, headers, and payloads.',
-  inspectorPageOrigin: 'Source Page',
-  inspectorTargetUrl: 'Target Endpoint',
-  inspectorAuthTitle: 'Token & Auth Carrier Analysis',
-  inspectorNoAuthDetected: 'No explicit token detected in headers, query, or body.',
+  inspectorFilterErrors: '4xx/5xx',
+  inspectorSelectHint: 'Click a request on the left to inspect headers, payload, response & token channels.',
+  inspectorSourcePage: 'From Page',
+  inspectorTargetUrl: 'To Endpoint',
+  inspectorTokenRadar: 'Token & Auth Radar (how tokens travel)',
+  inspectorNoTokens: 'No auth token detected in headers, body, query, or cookies.',
   inspectorReqHeaders: 'Request Headers',
   inspectorResHeaders: 'Response Headers',
-  inspectorQueryParams: 'Query Parameters',
-  inspectorReqBody: 'Request Body (Raw)',
-  inspectorResPreview: 'Response Preview',
-  inspectorCreateHeaderRule: '+ Rule',
-  inspectorCreateBodyRule: '+ Mock / Body Rule',
-  inspectorRuleCreated: 'Rule added to active workspace',
+  inspectorQueryParams: 'Query Params',
+  inspectorReqBody: 'Request Body',
+  inspectorResBody: 'Response Body',
+  inspectorEmpty: 'Empty',
+  inspectorAddAsHeaderRule: '+ Rule',
+  inspectorCopyBody: 'Copy',
   tabScope: 'Tab Scope',
   curlModalTitle: 'Import Rules from cURL',
   curlModalHint:
@@ -384,29 +378,26 @@ export const tr: Messages = {
   refresh: 'Yenile',
   clear: 'Temizle',
   inspectorHint:
-    'Sayfanın ne gönderdiğini gösterir (method, URL, status, credentials, görünen header’lar). Mutasyonlu satırlar vurgulanır — site bozulursa eşleşen kuralı kapat.',
+    'Sayfa → API akışı, header/body değerleri ve token radarı (Header / Body / Query / Cookie).',
   noTraffic: 'Henüz trafik yok. Bir sayfa aç, dolaş, sonra Yenile’ye bas.',
-  inspectorFilterPlaceholder: 'URL, header, body veya token anahtarı ara...',
+  inspectorSearchPlaceholder: 'URL, header, body, token ara...',
   inspectorFilterAll: 'Tümü',
-  inspectorFilterAuth: 'Token/Auth Var',
-  inspectorFilterHeaderAuth: 'Header’da Token',
-  inspectorFilterBodyAuth: 'Body’de Token',
-  inspectorFilterQueryAuth: 'Query’de Token',
-  inspectorFilterCookieAuth: 'Cookie',
+  inspectorFilterTokens: 'Token Var',
   inspectorFilterMutated: 'Mutasyonlu',
-  inspectorSelectHint: 'Sayfa → Hedef akışını, token’ın nereden gittiğini, header ve body değerlerini görmek için soldan bir istek seç.',
-  inspectorPageOrigin: 'Kaynak Sayfa',
+  inspectorFilterErrors: '4xx/5xx',
+  inspectorSelectHint: 'Detaylı header, body, response ve token kanalını görmek için soldan bir istek seç.',
+  inspectorSourcePage: 'Kaynak Sayfa',
   inspectorTargetUrl: 'Hedef Endpoint',
-  inspectorAuthTitle: 'Token & Auth Taşıyıcı Analizi',
-  inspectorNoAuthDetected: 'Header, query veya body içinde açık token tespit edilmedi.',
-  inspectorReqHeaders: 'Request Header’ları',
-  inspectorResHeaders: 'Response Header’ları',
+  inspectorTokenRadar: 'Token & Auth Radarı (token nereden gidiyor)',
+  inspectorNoTokens: 'Header, body, query veya cookie içinde token tespit edilmedi.',
+  inspectorReqHeaders: 'Giden Header’lar',
+  inspectorResHeaders: 'Dönen Header’lar',
   inspectorQueryParams: 'Query Parametreleri',
-  inspectorReqBody: 'Request Body (Ham Değer)',
-  inspectorResPreview: 'Response Önizleme',
-  inspectorCreateHeaderRule: '+ Kural Yap',
-  inspectorCreateBodyRule: '+ Body / Mock Kuralı Yap',
-  inspectorRuleCreated: 'Kural aktif workspace’e eklendi',
+  inspectorReqBody: 'Giden Body (Request)',
+  inspectorResBody: 'Dönen Body (Response)',
+  inspectorEmpty: 'Boş',
+  inspectorAddAsHeaderRule: '+ Kural',
+  inspectorCopyBody: 'Kopyala',
   tabScope: 'Sekme Kapsamı',
   curlModalTitle: 'cURL’den Kural İçe Aktar',
   curlModalHint:

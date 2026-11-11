@@ -409,7 +409,7 @@ extApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const newEntry: InterceptLogEntry = message.entry;
     extApi.storage.local.get('devManipulatorState').then(async (data) => {
       const st: ExtensionState = data?.devManipulatorState || FALLBACK_STATE;
-      const updatedLogs = [newEntry, ...(st.logs || [])].slice(0, 150);
+      const updatedLogs = [newEntry, ...(st.logs || [])].slice(0, 80);
       const nextState: ExtensionState = { ...st, logs: updatedLogs };
       await extApi.storage.local.set({ devManipulatorState: nextState });
       sendResponse({ ok: true });

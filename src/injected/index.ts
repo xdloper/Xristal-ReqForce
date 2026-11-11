@@ -1,9 +1,9 @@
 import {
-  AuthCarrierInfo,
   BodyRule,
   ExtensionState,
   HeaderRule,
   Profile,
+  TokenTrace,
 } from '../types/extension';
 
 (function () {
@@ -13,6 +13,7 @@ import {
   (window as unknown as { __REQFORGE_INSTALLED__?: boolean }).__REQFORGE_INSTALLED__ = true;
 
   let currentState: ExtensionState | null = null;
+  const MAX_BODY_CHARS = 4000;
 
   function getActiveProfile(): Profile | null {
     if (!currentState || !currentState.globalEnabled) return null;
@@ -27,109 +28,92 @@ import {
     return Boolean(currentState?.trafficMonitorEnabled);
   }
 
-  const AUTH_HEADER_PATTERN =
-    /^(authorization|x-api-key|api-key|x-auth-token|x-access-token|x-csrf-token|x-xsrf-token|x-session-id|x-token|token|apikey)$/i;
-  const AUTH_KEY_PATTERN =
-    /(token|access_token|accesstoken|refresh_token|refreshtoken|id_token|idtoken|jwt|bearer|api_key|apikey|secret|session|sessionid|auth|csrf)/i;
-
-  function maskValue(raw: string): string {
-    const val = String(raw || '').trim();
-    if (!val) return '';
-    if (val.length <= 12) return val;
-    return `${val.slice(0, 10)}…${val.slice(-4)} (${val.length}c)`;
+  function cap(text: string | undefined): string | undefined {
+    if (!text) return undefined;
+    return text.length > MAX_BODY_CHARS
+      ? `${text.slice(0, MAX_BODY_CHARS)}\n…[truncated ${text.length - MAX_BODY_CHARS} chars]`
+      : text;
   }
 
-  function extractQueryParams(url: string): Record<string, string> {
-    const out: Record<string, string> = {};
-    try {
-      const u = new URL(url, window.location.href);
-      u.searchParams.forEach((v, k) => {
-        out[k] = v;
-      });
-    } catch {
-      // ignore
+  function maskSecret(val: string): string {
+    const v = val.trim();
+    if (v.length <= 12) return v;
+    if (/^bearer\s+/i.test(v)) {
+      const tok = v.replace(/^bearer\s+/i, '');
+      return `Bearer ${tok.slice(0, 10)}…${tok.slice(-4)} (${tok.length}c)`;
     }
-    return out;
+    if (v.split('.').length === 3 && v.startsWith('eyJ')) {
+      return `JWT ${v.slice(0, 10)}…${v.slice(-4)} (${v.length}c)`;
+    }
+    return `${v.slice(0, 8)}…${v.slice(-4)} (${v.length}c)`;
   }
 
-  function detectAuthCarriers(params: {
-    requestHeaders?: Record<string, string>;
-    queryParams?: Record<string, string>;
-    requestBody?: string;
-    credentials?: string;
-    targetUrl?: string;
-  }): AuthCarrierInfo[] {
-    const carriers: AuthCarrierInfo[] = [];
-    const headers = params.requestHeaders || {};
+  const TOKEN_KEY_RE =
+    /(authorization|auth|token|jwt|bearer|api[-_]?key|access[-_]?token|refresh[-_]?token|id[-_]?token|session|csrf|xsrf|secret|signature)/i;
 
-    for (const [k, v] of Object.entries(headers)) {
-      const lower = k.toLowerCase();
-      if (lower === 'authorization') {
-        const parts = v.trim().split(/\s+/);
-        const scheme = parts.length > 1 ? parts[0] : 'Raw';
-        const rest = parts.length > 1 ? parts.slice(1).join(' ') : v;
-        carriers.push({
-          location: 'header',
-          key: k,
-          scheme,
-          preview: `${scheme} ${maskValue(rest)}`,
-        });
-      } else if (AUTH_HEADER_PATTERN.test(k) || AUTH_KEY_PATTERN.test(k)) {
-        carriers.push({
-          location: 'header',
-          key: k,
-          scheme: 'Header',
-          preview: maskValue(v),
-        });
+  function detectTokens(
+    reqHeaders: Record<string, string>,
+    queryParams: Record<string, string>,
+    reqBody: string | undefined,
+    credentials: string
+  ): TokenTrace[] {
+    const traces: TokenTrace[] = [];
+
+    // 1. Headers
+    for (const [k, v] of Object.entries(reqHeaders)) {
+      if (
+        TOKEN_KEY_RE.test(k) ||
+        /^bearer\s+/i.test(v) ||
+        (v.startsWith('eyJ') && v.split('.').length === 3)
+      ) {
+        traces.push({ channel: 'header', key: k, preview: maskSecret(v) });
       }
     }
 
-    const q = params.queryParams || {};
-    for (const [k, v] of Object.entries(q)) {
-      if (AUTH_KEY_PATTERN.test(k)) {
-        carriers.push({
-          location: 'query',
-          key: `?${k}`,
-          scheme: 'Query',
-          preview: maskValue(v),
-        });
+    // 2. Query string
+    for (const [k, v] of Object.entries(queryParams)) {
+      if (
+        TOKEN_KEY_RE.test(k) ||
+        (v.startsWith('eyJ') && v.split('.').length === 3)
+      ) {
+        traces.push({ channel: 'query', key: k, preview: maskSecret(v) });
       }
     }
 
-    if (params.requestBody) {
+    // 3. Request body (JSON or form-urlencoded)
+    if (reqBody) {
       try {
-        const parsed = JSON.parse(params.requestBody);
-        const scanObj = (obj: unknown, prefix = '') => {
+        const parsed = JSON.parse(reqBody);
+        const walk = (obj: unknown, prefix = '') => {
           if (!obj || typeof obj !== 'object') return;
           for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
             const path = prefix ? `${prefix}.${k}` : k;
-            if (typeof v === 'string' && v.trim() && AUTH_KEY_PATTERN.test(k)) {
-              const isJwt = /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/.test(v.trim());
-              carriers.push({
-                location: 'body',
-                key: path,
-                scheme: isJwt ? 'JWT in Body' : 'JSON Body',
-                preview: maskValue(v),
-              });
-            } else if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
-              scanObj(v, path);
+            if (typeof v === 'string' && v.trim()) {
+              if (
+                TOKEN_KEY_RE.test(k) ||
+                /^bearer\s+/i.test(v) ||
+                (v.startsWith('eyJ') && v.split('.').length === 3)
+              ) {
+                traces.push({
+                  channel: 'body',
+                  key: path,
+                  preview: maskSecret(v),
+                });
+              }
+            } else if (typeof v === 'object' && v !== null) {
+              walk(v, path);
             }
           }
         };
-        scanObj(parsed);
+        walk(parsed);
       } catch {
-        // Check URL-encoded form body
-        if (params.requestBody.includes('=')) {
+        // URLSearchParams body
+        if (reqBody.includes('=')) {
           try {
-            const sp = new URLSearchParams(params.requestBody);
+            const sp = new URLSearchParams(reqBody);
             sp.forEach((v, k) => {
-              if (AUTH_KEY_PATTERN.test(k) && v) {
-                carriers.push({
-                  location: 'body',
-                  key: k,
-                  scheme: 'Form Body',
-                  preview: maskValue(v),
-                });
+              if (TOKEN_KEY_RE.test(k)) {
+                traces.push({ channel: 'body', key: k, preview: maskSecret(v) });
               }
             });
           } catch {
@@ -139,52 +123,66 @@ import {
       }
     }
 
-    const cred = params.credentials || 'same-origin';
-    let sameOrigin = false;
+    // 4. Cookies (credentials mode + visible document.cookie keys)
     try {
-      if (params.targetUrl) {
-        sameOrigin =
-          new URL(params.targetUrl, window.location.href).origin ===
-          window.location.origin;
+      const rawCookie = typeof document !== 'undefined' ? document.cookie : '';
+      const cookieNames = rawCookie
+        ? rawCookie
+            .split(';')
+            .map((c) => c.trim().split('=')[0])
+            .filter(Boolean)
+        : [];
+      const authCookies = cookieNames.filter((n) => TOKEN_KEY_RE.test(n));
+      if (authCookies.length > 0) {
+        traces.push({
+          channel: 'cookie',
+          key: authCookies.join(', '),
+          preview: `credentials=${credentials}`,
+        });
+      } else if (credentials === 'include') {
+        traces.push({
+          channel: 'cookie',
+          key: 'credentials: include',
+          preview: cookieNames.length
+            ? `${cookieNames.length} JS cookie(s) + HttpOnly`
+            : 'HttpOnly / cross-origin cookies sent',
+        });
       }
     } catch {
       // ignore
     }
 
-    const sendsCookies =
-      cred === 'include' || (cred === 'same-origin' && sameOrigin);
-    if (sendsCookies && typeof document !== 'undefined' && document.cookie) {
-      const cookieNames = document.cookie
-        .split(';')
-        .map((c) => c.trim().split('=')[0])
-        .filter(Boolean);
-      if (cookieNames.length > 0) {
-        carriers.push({
-          location: 'cookie',
-          key: 'Cookie',
-          scheme: `credentials:${cred}`,
-          preview: `${cookieNames.slice(0, 4).join(', ')}${
-            cookieNames.length > 4 ? ` +${cookieNames.length - 4}` : ''
-          }`,
-        });
-      }
-    } else if (cred === 'include') {
-      carriers.push({
-        location: 'cookie',
-        key: 'Cookie (HttpOnly)',
-        scheme: 'credentials:include',
-        preview: 'Browser sends cross-site/HttpOnly cookies',
-      });
-    }
-
-    return carriers;
+    return traces;
   }
 
-  function truncateText(text: string | undefined, max = 1200): string | undefined {
-    if (!text) return undefined;
-    const trimmed = text.trim();
-    if (!trimmed) return undefined;
-    return trimmed.length > max ? `${trimmed.slice(0, max)}…` : trimmed;
+  function parseUrlParts(rawUrl: string): {
+    targetHost: string;
+    queryParams: Record<string, string>;
+  } {
+    const queryParams: Record<string, string> = {};
+    try {
+      const u = new URL(rawUrl, window.location.href);
+      u.searchParams.forEach((v, k) => {
+        queryParams[k] = v;
+      });
+      return { targetHost: u.host, queryParams };
+    } catch {
+      return { targetHost: '', queryParams };
+    }
+  }
+
+  function headersToRecord(headers?: HeadersInit | Headers | null): Record<string, string> {
+    const out: Record<string, string> = {};
+    if (!headers) return out;
+    try {
+      const h = headers instanceof Headers ? headers : new Headers(headers);
+      h.forEach((value, key) => {
+        out[key] = value;
+      });
+    } catch {
+      // ignore
+    }
+    return out;
   }
 
   function emitLog(entry: {
@@ -199,17 +197,13 @@ import {
     requestHeaders?: Record<string, string>;
     responseHeaders?: Record<string, string>;
     requestBody?: string;
-    responsePreview?: string;
+    responseBody?: string;
     credentials?: string;
   }) {
-    const queryParams = extractQueryParams(entry.url);
-    const authCarriers = detectAuthCarriers({
-      requestHeaders: entry.requestHeaders,
-      queryParams,
-      requestBody: entry.requestBody,
-      credentials: entry.credentials,
-      targetUrl: entry.url,
-    });
+    const { targetHost, queryParams } = parseUrlParts(entry.url);
+    const reqHeaders = entry.requestHeaders || {};
+    const creds = entry.credentials || 'same-origin';
+    const tokens = detectTokens(reqHeaders, queryParams, entry.requestBody, creds);
 
     window.postMessage(
       {
@@ -218,13 +212,15 @@ import {
         entry: {
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           timestamp: Date.now(),
-          pageUrl: window.location.href,
           ...entry,
-          method: entry.method.toUpperCase(),
-          queryParams: Object.keys(queryParams).length > 0 ? queryParams : undefined,
-          requestBody: truncateText(entry.requestBody),
-          responsePreview: truncateText(entry.responsePreview),
-          authCarriers: authCarriers.length > 0 ? authCarriers : undefined,
+          method: (entry.method || 'GET').toUpperCase(),
+          pageUrl: window.location.href,
+          pageOrigin: window.location.origin,
+          targetHost,
+          queryParams: Object.keys(queryParams).length ? queryParams : undefined,
+          requestBody: cap(entry.requestBody),
+          responseBody: cap(entry.responseBody),
+          tokens: tokens.length ? tokens : undefined,
         },
       },
       '*'
@@ -362,59 +358,6 @@ import {
 
   const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
-  function headersToObject(headers?: HeadersInit | Headers): Record<string, string> {
-    const out: Record<string, string> = {};
-    try {
-      const h = new Headers(headers || undefined);
-      h.forEach((value, key) => {
-        out[key] = value;
-      });
-    } catch {
-      // ignore
-    }
-    return out;
-  }
-
-  function extractRequestBodyString(
-    input: RequestInfo | URL,
-    init?: RequestInit
-  ): string | undefined {
-    try {
-      const b = init?.body;
-      if (typeof b === 'string') return b;
-      if (b instanceof URLSearchParams) return b.toString();
-      if (b instanceof FormData) {
-        const obj: Record<string, string> = {};
-        b.forEach((v, k) => {
-          obj[k] = typeof v === 'string' ? v : `[File:${v.name}]`;
-        });
-        return JSON.stringify(obj);
-      }
-    } catch {
-      // ignore
-    }
-    void input;
-    return undefined;
-  }
-
-  async function peekResponseText(res: Response): Promise<string | undefined> {
-    try {
-      const ct = (res.headers.get('content-type') || '').toLowerCase();
-      if (
-        ct.includes('json') ||
-        ct.includes('text') ||
-        ct.includes('xml') ||
-        ct.includes('javascript')
-      ) {
-        const clone = res.clone();
-        return await clone.text();
-      }
-    } catch {
-      // ignore
-    }
-    return undefined;
-  }
-
   function resolveUrl(input: RequestInfo | URL): string {
     let url = '';
     if (typeof input === 'string') url = input;
@@ -427,6 +370,38 @@ import {
     }
   }
 
+  function extractInitBodyString(body?: BodyInit | null): string | undefined {
+    if (!body) return undefined;
+    if (typeof body === 'string') return body;
+    if (body instanceof URLSearchParams) return body.toString();
+    if (typeof FormData !== 'undefined' && body instanceof FormData) {
+      const parts: string[] = [];
+      body.forEach((v, k) => {
+        parts.push(`${k}=${typeof v === 'string' ? v : '[File]'}`);
+      });
+      return parts.join('&');
+    }
+    return undefined;
+  }
+
+  async function readResponsePreview(res: Response): Promise<string | undefined> {
+    try {
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      if (
+        ct.includes('json') ||
+        ct.includes('text/') ||
+        ct.includes('xml') ||
+        ct.includes('javascript') ||
+        ct === ''
+      ) {
+        return await res.clone().text();
+      }
+      return `[${ct || 'binary'}]`;
+    } catch {
+      return undefined;
+    }
+  }
+
   // ============================================================================
   // FETCH — pass through untouched unless a body/header mutation is required
   // ============================================================================
@@ -436,17 +411,17 @@ import {
     input: RequestInfo | URL,
     init?: RequestInit
   ): Promise<Response> {
-    const startedAt = Date.now();
+    const t0 = performance.now();
     const fullUrl = resolveUrl(input);
     const method =
       init?.method ||
       (input instanceof Request ? input.method : 'GET') ||
       'GET';
 
-    const rawReqHeaders = headersToObject(
+    const rawReqBody = extractInitBodyString(init?.body);
+    const initHeaders = headersToRecord(
       init?.headers || (input instanceof Request ? input.headers : undefined)
     );
-    const rawReqBody = extractRequestBodyString(input, init);
     const cred = String(
       init?.credentials ||
         (input instanceof Request ? input.credentials : 'same-origin')
@@ -456,7 +431,7 @@ import {
     if (!profile) {
       const res = await originalFetch(input, init);
       if (trafficMonitorOn()) {
-        const resPreview = await peekResponseText(res);
+        const resBody = await readResponsePreview(res);
         emitLog({
           type: 'TRAFFIC',
           method,
@@ -464,12 +439,12 @@ import {
           ruleName: 'passthrough',
           details: `HTTP ${res.status} (paused)`,
           status: res.status,
-          durationMs: Date.now() - startedAt,
+          durationMs: Math.round(performance.now() - t0),
           mutated: false,
-          requestHeaders: rawReqHeaders,
-          responseHeaders: headersToObject(res.headers),
+          requestHeaders: initHeaders,
+          responseHeaders: headersToRecord(res.headers),
           requestBody: rawReqBody,
-          responsePreview: resPreview,
+          responseBody: resBody,
           credentials: cred,
         });
       }
@@ -486,11 +461,10 @@ import {
     const matchingHeaders = getMatchingRequestHeaders(fullUrl);
     const shouldMutate = matchingHeaders.length > 0 || matchingBodyRules.length > 0;
 
-    // CRITICAL: if nothing matches, call original fetch with original args (keeps cookies/credentials intact)
     if (!shouldMutate) {
       const res = await originalFetch(input, init);
       if (trafficMonitorOn()) {
-        const resPreview = await peekResponseText(res);
+        const resBody = await readResponsePreview(res);
         emitLog({
           type: 'TRAFFIC',
           method,
@@ -498,19 +472,18 @@ import {
           ruleName: '—',
           details: `HTTP ${res.status}`,
           status: res.status,
-          durationMs: Date.now() - startedAt,
+          durationMs: Math.round(performance.now() - t0),
           mutated: false,
-          requestHeaders: rawReqHeaders,
-          responseHeaders: headersToObject(res.headers),
+          requestHeaders: initHeaders,
+          responseHeaders: headersToRecord(res.headers),
           requestBody: rawReqBody,
-          responsePreview: resPreview,
+          responseBody: resBody,
           credentials: cred,
         });
       }
       return res;
     }
 
-    // Build a safe override init while preserving credentials/mode/cache/etc.
     const baseInit: RequestInit = { ...(init || {}) };
     if (input instanceof Request) {
       if (baseInit.credentials === undefined) baseInit.credentials = input.credentials;
@@ -536,33 +509,25 @@ import {
       baseInit.headers = headers;
     }
 
-    let outgoingBodyText = rawReqBody || '';
+    let sentBodyText = rawReqBody;
     if (reqRules.length > 0) {
-      if (!outgoingBodyText && input instanceof Request && baseInit.body == null) {
+      let bodyText = rawReqBody || '';
+      if (!bodyText && input instanceof Request && baseInit.body == null) {
         try {
-          outgoingBodyText = await input.clone().text();
+          bodyText = await input.clone().text();
         } catch {
-          outgoingBodyText = '';
+          bodyText = '';
         }
       }
       for (const rule of reqRules) {
         if (rule.delayMs && rule.delayMs > 0) await sleep(rule.delayMs);
-        outgoingBodyText = transformBodyText(outgoingBodyText, rule);
-        emitLog({
-          type: 'BODY_REQ',
-          method,
-          url: fullUrl,
-          ruleName: rule.name || rule.urlPattern,
-          details: `Request body modified (${rule.mode})`,
-          durationMs: Date.now() - startedAt,
-          mutated: true,
-          requestHeaders: headersToObject(baseInit.headers),
-          requestBody: outgoingBodyText,
-          credentials: cred,
-        });
+        bodyText = transformBodyText(bodyText, rule);
       }
-      baseInit.body = outgoingBodyText;
+      baseInit.body = bodyText;
+      sentBodyText = bodyText;
     }
+
+    const finalReqHeaders = headersToRecord(baseInit.headers || initHeaders);
 
     const fullReplaceRule = resRules.find((r) => r.mode === 'replace_response');
     if (fullReplaceRule) {
@@ -577,11 +542,11 @@ import {
         ruleName: fullReplaceRule.name || fullReplaceRule.urlPattern,
         details: `Mocked response (${status})`,
         status,
-        durationMs: Date.now() - startedAt,
+        durationMs: Math.round(performance.now() - t0),
         mutated: true,
-        requestHeaders: headersToObject(baseInit.headers),
-        requestBody: outgoingBodyText || rawReqBody,
-        responsePreview: fullReplaceRule.bodyContent,
+        requestHeaders: finalReqHeaders,
+        requestBody: sentBodyText,
+        responseBody: fullReplaceRule.bodyContent,
         credentials: cred,
       });
       return new Response(fullReplaceRule.bodyContent, {
@@ -594,9 +559,7 @@ import {
     }
 
     const fetchTarget =
-      typeof input === 'string' || input instanceof URL
-        ? input
-        : fullUrl;
+      typeof input === 'string' || input instanceof URL ? input : fullUrl;
     const response = await originalFetch(fetchTarget, baseInit);
 
     const mergeResRules = resRules.filter((r) => r.mode === 'merge_response_json');
@@ -608,22 +571,22 @@ import {
           if (rule.delayMs && rule.delayMs > 0) await sleep(rule.delayMs);
           resText = transformBodyText(resText, rule);
           if (rule.statusCode) finalStatus = rule.statusCode;
-          emitLog({
-            type: 'BODY_RES',
-            method,
-            url: fullUrl,
-            ruleName: rule.name || rule.urlPattern,
-            details: `Merged response JSON (${finalStatus})`,
-            status: finalStatus,
-            durationMs: Date.now() - startedAt,
-            mutated: true,
-            requestHeaders: headersToObject(baseInit.headers),
-            responseHeaders: headersToObject(response.headers),
-            requestBody: outgoingBodyText || rawReqBody,
-            responsePreview: resText,
-            credentials: cred,
-          });
         }
+        emitLog({
+          type: 'BODY_RES',
+          method,
+          url: fullUrl,
+          ruleName: mergeResRules.map((r) => r.name || r.urlPattern).join(', '),
+          details: `Merged response JSON (${finalStatus})`,
+          status: finalStatus,
+          durationMs: Math.round(performance.now() - t0),
+          mutated: true,
+          requestHeaders: finalReqHeaders,
+          responseHeaders: headersToRecord(response.headers),
+          requestBody: sentBodyText,
+          responseBody: resText,
+          credentials: cred,
+        });
         const resHeaders = new Headers(response.headers);
         resHeaders.set('X-Manipulated-By', 'ReqForge');
         return new Response(resText, {
@@ -636,21 +599,22 @@ import {
       }
     }
 
-    if (trafficMonitorOn() || matchingHeaders.length > 0) {
-      const resPreview = await peekResponseText(response);
+    if (trafficMonitorOn() || matchingHeaders.length > 0 || reqRules.length > 0) {
+      const resBody = await readResponsePreview(response);
       emitLog({
-        type: matchingHeaders.length > 0 ? 'HEADER' : 'TRAFFIC',
+        type: reqRules.length > 0 ? 'BODY_REQ' : matchingHeaders.length > 0 ? 'HEADER' : 'TRAFFIC',
         method,
         url: fullUrl,
-        ruleName: matchingHeaders.map((h) => h.label).join(', ') || '—',
-        details: `HTTP ${response.status}${matchingHeaders.length ? ' + headers' : ''}`,
+        ruleName:
+          [...reqRules.map((r) => r.name || r.urlPattern), ...matchingHeaders.map((h) => h.label)].join(', ') || '—',
+        details: `HTTP ${response.status}`,
         status: response.status,
-        durationMs: Date.now() - startedAt,
-        mutated: matchingHeaders.length > 0,
-        requestHeaders: headersToObject(baseInit.headers),
-        responseHeaders: headersToObject(response.headers),
-        requestBody: outgoingBodyText || rawReqBody,
-        responsePreview: resPreview,
+        durationMs: Math.round(performance.now() - t0),
+        mutated: true,
+        requestHeaders: finalReqHeaders,
+        responseHeaders: headersToRecord(response.headers),
+        requestBody: sentBodyText,
+        responseBody: resBody,
         credentials: cred,
       });
     }
@@ -659,7 +623,7 @@ import {
   };
 
   // ============================================================================
-  // XHR — capture headers, body, response preview, duration & auth carriers
+  // XHR — capture headers, body, response & token locations
   // ============================================================================
   const OriginalXHR = window.XMLHttpRequest;
 
@@ -667,7 +631,7 @@ import {
     private _url = '';
     private _method = 'GET';
     private _reqHeaders: Record<string, string> = {};
-    private _startedAt = 0;
+    private _t0 = 0;
 
     open(
       method: string,
@@ -691,31 +655,28 @@ import {
       super.setRequestHeader(name, value);
     }
 
-    private _collectResponseHeaders(): Record<string, string> {
+    private _parseResHeaders(): Record<string, string> {
       const out: Record<string, string> = {};
       try {
         const raw = this.getAllResponseHeaders() || '';
-        raw
-          .trim()
-          .split(/[\r\n]+/)
-          .forEach((line) => {
-            const idx = line.indexOf(':');
-            if (idx > 0) {
-              out[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-            }
-          });
+        for (const line of raw.trim().split(/[\r\n]+/)) {
+          const idx = line.indexOf(':');
+          if (idx > 0) {
+            out[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+          }
+        }
       } catch {
         // ignore
       }
       return out;
     }
 
-    private _safeResponseText(): string | undefined {
+    private _safeResText(): string | undefined {
       try {
         if (!this.responseType || this.responseType === 'text') {
           return this.responseText;
         }
-        if (this.responseType === 'json' && this.response) {
+        if (this.responseType === 'json' && this.response != null) {
           return JSON.stringify(this.response);
         }
       } catch {
@@ -725,11 +686,11 @@ import {
     }
 
     send(body?: Document | XMLHttpRequestBodyInit | null): void {
-      this._startedAt = Date.now();
-      const rawBodyStr = typeof body === 'string' ? body : undefined;
-      const cred = this.withCredentials ? 'include' : 'same-origin';
-
+      this._t0 = performance.now();
+      const rawBody = typeof body === 'string' ? body : undefined;
+      const credMode = this.withCredentials ? 'include' : 'same-origin';
       const profile = getActiveProfile();
+
       if (!profile) {
         if (trafficMonitorOn()) {
           this.addEventListener('loadend', () => {
@@ -740,13 +701,13 @@ import {
               ruleName: 'passthrough',
               details: `HTTP ${this.status} (paused)`,
               status: this.status,
-              durationMs: Date.now() - this._startedAt,
+              durationMs: Math.round(performance.now() - this._t0),
               mutated: false,
-              requestHeaders: { ...this._reqHeaders },
-              responseHeaders: this._collectResponseHeaders(),
-              requestBody: rawBodyStr,
-              responsePreview: this._safeResponseText(),
-              credentials: cred,
+              requestHeaders: this._reqHeaders,
+              responseHeaders: this._parseResHeaders(),
+              requestBody: rawBody,
+              responseBody: this._safeResText(),
+              credentials: credMode,
             });
           });
         }
@@ -767,13 +728,13 @@ import {
               ruleName: '—',
               details: `HTTP ${this.status}`,
               status: this.status,
-              durationMs: Date.now() - this._startedAt,
+              durationMs: Math.round(performance.now() - this._t0),
               mutated: false,
-              requestHeaders: { ...this._reqHeaders },
-              responseHeaders: this._collectResponseHeaders(),
-              requestBody: rawBodyStr,
-              responsePreview: this._safeResponseText(),
-              credentials: cred,
+              requestHeaders: this._reqHeaders,
+              responseHeaders: this._parseResHeaders(),
+              requestBody: rawBody,
+              responseBody: this._safeResText(),
+              credentials: credMode,
             });
           });
         }
@@ -785,12 +746,13 @@ import {
           try {
             this.setRequestHeader(h.name, h.value);
           } catch {
-            // restricted header names ignored
+            // restricted header
           }
         }
       }
 
       let outgoingBody = body;
+      let sentText = rawBody;
       const reqRules = matchingBodyRules.filter(
         (r) => r.mode === 'replace_request' || r.mode === 'merge_request_json'
       );
@@ -798,20 +760,9 @@ import {
         let textBody = typeof body === 'string' ? body : '';
         for (const rule of reqRules) {
           textBody = transformBodyText(textBody, rule);
-          emitLog({
-            type: 'BODY_REQ',
-            method: this._method,
-            url: this._url,
-            ruleName: rule.name || rule.urlPattern,
-            details: `XHR request body modified (${rule.mode})`,
-            durationMs: Date.now() - this._startedAt,
-            mutated: true,
-            requestHeaders: { ...this._reqHeaders },
-            requestBody: textBody,
-            credentials: cred,
-          });
         }
         outgoingBody = textBody;
+        sentText = textBody;
       }
 
       const resRules = matchingBodyRules.filter(
@@ -832,21 +783,6 @@ import {
             for (const rule of resRules) {
               modifiedText = transformBodyText(modifiedText, rule);
               if (rule.statusCode) customStatus = rule.statusCode;
-              emitLog({
-                type: 'BODY_RES',
-                method: this._method,
-                url: this._url,
-                ruleName: rule.name || rule.urlPattern,
-                details: `XHR response modified (${rule.mode})`,
-                status: customStatus,
-                durationMs: Date.now() - this._startedAt,
-                mutated: true,
-                requestHeaders: { ...this._reqHeaders },
-                responseHeaders: this._collectResponseHeaders(),
-                requestBody: typeof outgoingBody === 'string' ? outgoingBody : rawBodyStr,
-                responsePreview: modifiedText,
-                credentials: cred,
-              });
             }
             Object.defineProperty(this, 'responseText', {
               configurable: true,
@@ -869,26 +805,42 @@ import {
               configurable: true,
               get: () => customStatus,
             });
+            emitLog({
+              type: 'BODY_RES',
+              method: this._method,
+              url: this._url,
+              ruleName: resRules.map((r) => r.name || r.urlPattern).join(', '),
+              details: `XHR response modified (${customStatus})`,
+              status: customStatus,
+              durationMs: Math.round(performance.now() - this._t0),
+              mutated: true,
+              requestHeaders: this._reqHeaders,
+              responseHeaders: this._parseResHeaders(),
+              requestBody: sentText,
+              responseBody: modifiedText,
+              credentials: credMode,
+            });
           } catch {
             // ignore
           }
         });
-      } else if (trafficMonitorOn() || matchingHeaders.length > 0) {
+      } else if (trafficMonitorOn() || matchingHeaders.length > 0 || reqRules.length > 0) {
         this.addEventListener('loadend', () => {
           emitLog({
-            type: matchingHeaders.length > 0 ? 'HEADER' : 'TRAFFIC',
+            type: reqRules.length > 0 ? 'BODY_REQ' : matchingHeaders.length > 0 ? 'HEADER' : 'TRAFFIC',
             method: this._method,
             url: this._url,
-            ruleName: matchingHeaders.map((h) => h.label).join(', ') || '—',
+            ruleName:
+              [...reqRules.map((r) => r.name || r.urlPattern), ...matchingHeaders.map((h) => h.label)].join(', ') || '—',
             details: `HTTP ${this.status}`,
             status: this.status,
-            durationMs: Date.now() - this._startedAt,
-            mutated: matchingHeaders.length > 0,
-            requestHeaders: { ...this._reqHeaders },
-            responseHeaders: this._collectResponseHeaders(),
-            requestBody: typeof outgoingBody === 'string' ? outgoingBody : rawBodyStr,
-            responsePreview: this._safeResponseText(),
-            credentials: cred,
+            durationMs: Math.round(performance.now() - this._t0),
+            mutated: true,
+            requestHeaders: this._reqHeaders,
+            responseHeaders: this._parseResHeaders(),
+            requestBody: sentText,
+            responseBody: this._safeResText(),
+            credentials: credMode,
           });
         });
       }

@@ -118,11 +118,12 @@ export default function App() {
   const [activeDomainPattern, setActiveDomainPattern] = useState<string>('*');
   const [showCurlModal, setShowCurlModal] = useState(false);
   const [curlInput, setCurlInput] = useState('');
-  const [inspectorQuery, setInspectorQuery] = useState('');
-  const [inspectorFilter, setInspectorFilter] = useState<
-    'all' | 'auth' | 'header' | 'body' | 'query' | 'cookie' | 'mutated'
-  >('all');
   const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
+  const [logSearch, setLogSearch] = useState('');
+  const [logFilter, setLogFilter] = useState<'all' | 'tokens' | 'mutated' | 'errors'>('all');
+  const [inspectorSection, setInspectorSection] = useState<
+    'overview' | 'reqHeaders' | 'reqBody' | 'resBody' | 'resHeaders'
+  >('overview');
 
   const t = useMemo(() => getMessages(state.locale), [state.locale]);
   const resolvedLocale = useMemo(
@@ -1543,90 +1544,88 @@ export default function App() {
         )}
 
         {/* =================================================================== */}
-        {/* TAB 4: INSPECTOR — Page -> Target Flow, Token Carriers & Payloads   */}
+        {/* TAB 4: DEEP TRAFFIC & TOKEN INSPECTOR                               */}
         {/* =================================================================== */}
-        {activeTab === 'logs' && (() => {
-          const filteredLogs = state.logs.filter((log) => {
-            if (inspectorFilter === 'mutated' && !log.mutated) return false;
-            if (inspectorFilter === 'auth' && (!log.authCarriers || log.authCarriers.length === 0)) {
-              return false;
-            }
-            if (
-              inspectorFilter === 'header' &&
-              !log.authCarriers?.some((c) => c.location === 'header')
-            ) {
-              return false;
-            }
-            if (
-              inspectorFilter === 'body' &&
-              !log.authCarriers?.some((c) => c.location === 'body')
-            ) {
-              return false;
-            }
-            if (
-              inspectorFilter === 'query' &&
-              !log.authCarriers?.some((c) => c.location === 'query')
-            ) {
-              return false;
-            }
-            if (
-              inspectorFilter === 'cookie' &&
-              !log.authCarriers?.some((c) => c.location === 'cookie')
-            ) {
-              return false;
-            }
-            if (!inspectorQuery.trim()) return true;
-            const q = inspectorQuery.toLowerCase();
-            const inUrl = log.url.toLowerCase().includes(q);
-            const inPage = (log.pageUrl || '').toLowerCase().includes(q);
-            const inHeaders = log.requestHeaders
-              ? Object.entries(log.requestHeaders).some(
-                  ([k, v]) =>
-                    k.toLowerCase().includes(q) || v.toLowerCase().includes(q)
-                )
-              : false;
-            const inBody = (log.requestBody || '').toLowerCase().includes(q);
-            const inRes = (log.responsePreview || '').toLowerCase().includes(q);
-            const inAuth = (log.authCarriers || []).some(
-              (c) =>
-                c.key.toLowerCase().includes(q) ||
-                c.preview.toLowerCase().includes(q)
-            );
-            return inUrl || inPage || inHeaders || inBody || inRes || inAuth;
-          });
+        {activeTab === 'logs' &&
+          (() => {
+            const q = logSearch.trim().toLowerCase();
+            const filteredLogs = state.logs.filter((log) => {
+              if (logFilter === 'tokens' && (!log.tokens || log.tokens.length === 0)) {
+                return false;
+              }
+              if (logFilter === 'mutated' && !log.mutated) return false;
+              if (logFilter === 'errors' && (!log.status || log.status < 400)) {
+                return false;
+              }
+              if (!q) return true;
+              const hay = [
+                log.url,
+                log.pageUrl || '',
+                log.method,
+                log.ruleName,
+                log.requestBody || '',
+                log.responseBody || '',
+                JSON.stringify(log.requestHeaders || {}),
+                JSON.stringify(log.tokens || []),
+              ]
+                .join(' ')
+                .toLowerCase();
+              return hay.includes(q);
+            });
 
-          const selectedLog =
-            filteredLogs.find((l) => l.id === selectedLogId) ||
-            filteredLogs[0] ||
-            null;
+            const activeLog =
+              filteredLogs.find((l) => l.id === selectedLogId) ||
+              filteredLogs[0] ||
+              null;
 
-          const shortHostPath = (rawUrl?: string) => {
-            if (!rawUrl) return '—';
-            try {
-              const u = new URL(rawUrl);
-              return `${u.hostname}${u.pathname === '/' ? '' : u.pathname}`;
-            } catch {
-              return rawUrl;
-            }
-          };
+            const shortUrl = (raw?: string) => {
+              if (!raw) return '—';
+              try {
+                const u = new URL(raw);
+                return `${u.host}${u.pathname}${u.search}`;
+              } catch {
+                return raw;
+              }
+            };
 
-          const badgeColor = (loc: string) => {
-            if (loc === 'header') return 'bg-purple-500/15 text-purple-300 border-purple-500/30';
-            if (loc === 'body') return 'bg-amber-500/15 text-amber-300 border-amber-500/30';
-            if (loc === 'query') return 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30';
-            return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
-          };
+            const shortPage = (raw?: string) => {
+              if (!raw) return 'page';
+              try {
+                const u = new URL(raw);
+                return `${u.host}${u.pathname === '/' ? '' : u.pathname}`;
+              } catch {
+                return raw;
+              }
+            };
 
-          return (
-            <div className="flex flex-col h-full">
-              {/* Top Filter & Control Bar */}
-              <div className="px-3.5 py-2 bg-rf-raised border-b border-rf-border space-y-1.5 shrink-0">
-                <div className="flex items-center justify-between gap-2 text-[11px]">
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-rf-3 font-medium">
-                      {t.liveTraffic} ({filteredLogs.length}/{state.logs.length})
-                    </span>
-                    <label className="flex items-center gap-1.5 text-rf-3 cursor-pointer">
+            const formatPretty = (raw?: string) => {
+              if (!raw) return '';
+              try {
+                return JSON.stringify(JSON.parse(raw), null, 2);
+              } catch {
+                return raw;
+              }
+            };
+
+            const channelBadge = (ch: string) => {
+              switch (ch) {
+                case 'header':
+                  return 'bg-blue-500/15 text-blue-300 border-blue-500/30';
+                case 'body':
+                  return 'bg-purple-500/15 text-purple-300 border-purple-500/30';
+                case 'query':
+                  return 'bg-amber-500/15 text-amber-300 border-amber-500/30';
+                default:
+                  return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
+              }
+            };
+
+            return (
+              <div className="flex flex-col h-full">
+                {/* Top toolbar: Monitor switch + Filter chips + Search + Refresh/Clear */}
+                <div className="flex items-center justify-between gap-2 px-3.5 py-2 bg-rf-raised border-b border-rf-border text-[11px] shrink-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <label className="flex items-center gap-1.5 text-rf-2 cursor-pointer shrink-0">
                       <Switch
                         checked={state.trafficMonitorEnabled !== false}
                         onChange={(val) =>
@@ -1636,24 +1635,49 @@ export default function App() {
                           }))
                         }
                       />
-                      <span className="text-[10px]">{t.monitorAll}</span>
+                      <span className="text-[10px] font-medium">{t.monitorAll}</span>
                     </label>
+
+                    <div className="h-3.5 w-[1px] bg-rf-border shrink-0" />
+
+                    <div className="flex items-center gap-1">
+                      {(
+                        [
+                          { id: 'all' as const, label: t.inspectorFilterAll },
+                          { id: 'tokens' as const, label: t.inspectorFilterTokens },
+                          { id: 'mutated' as const, label: t.inspectorFilterMutated },
+                          { id: 'errors' as const, label: t.inspectorFilterErrors },
+                        ]
+                      ).map((f) => (
+                        <button
+                          key={f.id}
+                          onClick={() => setLogFilter(f.id)}
+                          className={`h-5 px-2 rounded text-[10px] font-medium transition-colors ${
+                            logFilter === f.id
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-rf-input text-rf-4 hover:text-rf-2 border border-rf-border'
+                          }`}
+                        >
+                          {f.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <div className="relative flex items-center">
                       <Search className="w-3 h-3 text-rf-5 absolute left-2 pointer-events-none" />
                       <input
                         type="text"
-                        value={inspectorQuery}
-                        onChange={(e) => setInspectorQuery(e.target.value)}
-                        placeholder={t.inspectorFilterPlaceholder}
-                        className="h-6 pl-6 pr-2 w-48 rounded bg-rf-input border border-rf-border text-[10px] text-rf-2 placeholder-rf-5 focus:outline-none focus:border-blue-500"
+                        value={logSearch}
+                        onChange={(e) => setLogSearch(e.target.value)}
+                        placeholder={t.inspectorSearchPlaceholder}
+                        className="h-6 pl-6 pr-2 w-44 rounded bg-rf-input border border-rf-border text-[11px] text-rf-2 placeholder-rf-5 focus:outline-none focus:border-blue-500"
                       />
                     </div>
                     <button
                       onClick={() => loadExtensionState().then(setState)}
-                      className="h-6 px-2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[10px] text-rf-3"
+                      className="h-6 px-2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-rf-3 text-[10px]"
                     >
                       {t.refresh}
                     </button>
@@ -1662,322 +1686,358 @@ export default function App() {
                         setSelectedLogId(null);
                         updateState((prev) => ({ ...prev, logs: [] }));
                       }}
-                      className="h-6 px-2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[10px] text-rf-4 hover:text-red-400"
+                      className="h-6 px-2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-rf-4 hover:text-red-400 text-[10px]"
                     >
                       {t.clear}
                     </button>
                   </div>
                 </div>
 
-                {/* Auth Carrier Filter Pills */}
-                <div className="flex items-center gap-1 flex-wrap">
-                  {(
-                    [
-                      { id: 'all', label: t.inspectorFilterAll },
-                      { id: 'auth', label: t.inspectorFilterAuth },
-                      { id: 'header', label: t.inspectorFilterHeaderAuth },
-                      { id: 'body', label: t.inspectorFilterBodyAuth },
-                      { id: 'query', label: t.inspectorFilterQueryAuth },
-                      { id: 'cookie', label: t.inspectorFilterCookieAuth },
-                      { id: 'mutated', label: t.inspectorFilterMutated },
-                    ] as const
-                  ).map((pill) => (
-                    <button
-                      key={pill.id}
-                      onClick={() => setInspectorFilter(pill.id)}
-                      className={`h-5 px-2 rounded text-[10px] font-medium border transition-colors ${
-                        inspectorFilter === pill.id
-                          ? 'bg-blue-600 text-white border-blue-500'
-                          : 'bg-rf-input text-rf-4 border-rf-border hover:text-rf-2'
-                      }`}
-                    >
-                      {pill.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+                {/* Master-Detail Split */}
+                {filteredLogs.length === 0 ? (
+                  <div className="py-16 text-center text-rf-5 text-xs">
+                    {t.noTraffic}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-12 flex-1 min-h-0">
+                    {/* Left: Request list with Source Page → Target URL & Token chips */}
+                    <div className="col-span-5 border-r border-rf-border overflow-y-auto divide-y divide-rf-border/60 bg-rf-sunken">
+                      {filteredLogs.map((log) => {
+                        const isSelected = activeLog?.id === log.id;
+                        const statusColor =
+                          !log.status
+                            ? 'text-rf-4'
+                            : log.status >= 400
+                            ? 'text-rose-400'
+                            : log.status >= 300
+                            ? 'text-amber-300'
+                            : 'text-emerald-400';
 
-              {/* Split Pane: Left Request Stream | Right Deep Inspector */}
-              {filteredLogs.length === 0 ? (
-                <div className="py-16 text-center text-rf-5 text-xs">
-                  {t.noTraffic}
-                </div>
-              ) : (
-                <div className="grid grid-cols-12 flex-1 min-h-0 overflow-hidden">
-                  {/* Left List (5 cols) */}
-                  <div className="col-span-5 border-r border-rf-border overflow-y-auto divide-y divide-rf-border/50 font-mono-code text-[10px]">
-                    {filteredLogs.map((log) => {
-                      const active = selectedLog?.id === log.id;
-                      return (
-                        <div
-                          key={log.id}
-                          onClick={() => setSelectedLogId(log.id)}
-                          className={`px-2.5 py-2 cursor-pointer transition-colors ${
-                            active
-                              ? 'bg-blue-600/15 border-l-2 border-l-blue-500'
-                              : log.mutated
-                              ? 'bg-amber-500/5 border-l-2 border-l-amber-500/50 hover:bg-rf-input/50'
-                              : 'hover:bg-rf-input/40'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-1">
+                        return (
+                          <div
+                            key={log.id}
+                            onClick={() => setSelectedLogId(log.id)}
+                            className={`px-2.5 py-2 cursor-pointer transition-colors ${
+                              isSelected
+                                ? 'bg-blue-600/15 border-l-2 border-l-blue-500'
+                                : log.mutated
+                                ? 'bg-amber-500/5 hover:bg-rf-input/60'
+                                : 'hover:bg-rf-input/60'
+                            }`}
+                          >
+                            {/* Row 1: Method + Status + Target URL */}
                             <div className="flex items-center gap-1.5 min-w-0">
-                              <span className="px-1 py-0.2 rounded text-[9px] bg-blue-500/15 text-blue-300 font-semibold shrink-0">
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono-code bg-blue-500/15 text-blue-300 font-semibold shrink-0">
                                 {log.method}
                               </span>
                               <span
-                                className={`text-[9px] shrink-0 ${
-                                  (log.status || 200) >= 400
-                                    ? 'text-rose-400'
-                                    : 'text-emerald-400'
-                                }`}
+                                className={`text-[10px] font-mono-code font-semibold shrink-0 ${statusColor}`}
                               >
                                 {log.status ?? '—'}
                               </span>
-                              <span className="truncate text-rf-1" title={log.url}>
-                                {shortHostPath(log.url)}
+                              <span
+                                className="text-[11px] font-mono-code text-rf-1 truncate"
+                                title={log.url}
+                              >
+                                {shortUrl(log.url)}
                               </span>
                             </div>
-                            <span className="text-[9px] text-rf-5 shrink-0">
-                              {log.durationMs != null ? `${log.durationMs}ms` : ''}
-                            </span>
+
+                            {/* Row 2: Page → Target host flow + duration */}
+                            <div className="flex items-center justify-between gap-1 mt-1 text-[10px] text-rf-5">
+                              <span className="truncate font-mono-code" title={log.pageUrl}>
+                                {shortPage(log.pageUrl)} → {log.targetHost || 'host'}
+                              </span>
+                              <span className="shrink-0 font-mono-code">
+                                {log.durationMs != null ? `${log.durationMs}ms` : ''}
+                              </span>
+                            </div>
+
+                            {/* Row 3: Token channel badges + Mutated badge */}
+                            {((log.tokens && log.tokens.length > 0) || log.mutated) && (
+                              <div className="flex items-center gap-1 flex-wrap mt-1">
+                                {log.tokens?.map((tk, idx) => (
+                                  <span
+                                    key={idx}
+                                    className={`px-1.5 py-0.2 rounded border text-[9px] font-mono-code uppercase ${channelBadge(
+                                      tk.channel
+                                    )}`}
+                                  >
+                                    🔑 {tk.channel}: {tk.key}
+                                  </span>
+                                ))}
+                                {log.mutated && (
+                                  <span className="px-1.5 py-0.2 rounded border border-amber-500/30 bg-amber-500/15 text-amber-300 text-[9px] font-mono-code">
+                                    ⚡ {log.ruleName}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
+                        );
+                      })}
+                    </div>
 
-                          {/* Page -> Target mini breadcrumb */}
-                          {log.pageUrl && (
-                            <div className="mt-0.5 text-[9px] text-rf-5 truncate">
-                              {shortHostPath(log.pageUrl)} → {shortHostPath(log.url)}
-                            </div>
-                          )}
-
-                          {/* Token Carrier Badges */}
-                          {log.authCarriers && log.authCarriers.length > 0 && (
-                            <div className="mt-1 flex items-center gap-1 flex-wrap">
-                              {log.authCarriers.map((c, idx) => (
-                                <span
-                                  key={`${c.key}-${idx}`}
-                                  className={`px-1 py-0.2 rounded border text-[9px] ${badgeColor(
-                                    c.location
-                                  )}`}
-                                >
-                                  {c.location.toUpperCase()}: {c.key}
-                                </span>
-                              ))}
-                            </div>
-                          )}
+                    {/* Right: Selected Request Deep Detail */}
+                    <div className="col-span-7 flex flex-col min-h-0 bg-rf-base">
+                      {!activeLog ? (
+                        <div className="m-auto text-rf-5 text-xs px-6 text-center">
+                          {t.inspectorSelectHint}
                         </div>
-                      );
-                    })}
-                  </div>
+                      ) : (
+                        <>
+                          {/* Sub-tabs inside detail pane */}
+                          <div className="flex items-center gap-1 px-3 h-8 bg-rf-raised border-b border-rf-border shrink-0">
+                            {(
+                              [
+                                { id: 'overview' as const, label: 'Flow & Tokens' },
+                                {
+                                  id: 'reqHeaders' as const,
+                                  label: `${t.inspectorReqHeaders} (${
+                                    Object.keys(activeLog.requestHeaders || {}).length
+                                  })`,
+                                },
+                                { id: 'reqBody' as const, label: t.inspectorReqBody },
+                                { id: 'resBody' as const, label: t.inspectorResBody },
+                                {
+                                  id: 'resHeaders' as const,
+                                  label: `${t.inspectorResHeaders} (${
+                                    Object.keys(activeLog.responseHeaders || {}).length
+                                  })`,
+                                },
+                              ]
+                            ).map((sec) => (
+                              <button
+                                key={sec.id}
+                                onClick={() => setInspectorSection(sec.id)}
+                                className={`h-6 px-2 rounded text-[10px] font-medium transition-colors ${
+                                  inspectorSection === sec.id
+                                    ? 'bg-blue-600 text-white'
+                                    : 'text-rf-4 hover:text-rf-2 hover:bg-rf-hover'
+                                }`}
+                              >
+                                {sec.label}
+                              </button>
+                            ))}
+                          </div>
 
-                  {/* Right Detail Inspector (7 cols) */}
-                  <div className="col-span-7 overflow-y-auto p-3 space-y-2.5 bg-rf-base text-[11px]">
-                    {!selectedLog ? (
-                      <div className="py-12 text-center text-rf-5 text-xs">
-                        {t.inspectorSelectHint}
-                      </div>
-                    ) : (
-                      <>
-                        {/* Flow Card: Source Page -> Target Endpoint */}
-                        <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-1.5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-semibold uppercase tracking-wider text-rf-4">
-                              {t.inspectorPageOrigin} → {t.inspectorTargetUrl}
-                            </span>
-                            <button
-                              onClick={() => {
-                                let urlPattern = selectedLog.url;
-                                try {
-                                  urlPattern = new URL(selectedLog.url).pathname || selectedLog.url;
-                                } catch {
-                                  // keep full
-                                }
-                                const m = selectedLog.method.toUpperCase();
-                                const method: BodyRule['method'] = [
-                                  'GET',
-                                  'POST',
-                                  'PUT',
-                                  'PATCH',
-                                  'DELETE',
-                                ].includes(m)
-                                  ? (m as BodyRule['method'])
-                                  : 'ALL';
-                                const newRule: BodyRule = {
-                                  id: `b-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-                                  enabled: true,
-                                  name: `${method} ${urlPattern}`,
-                                  urlPattern,
-                                  isRegex: false,
-                                  method,
-                                  mode: selectedLog.responsePreview
-                                    ? 'merge_response_json'
-                                    : 'replace_request',
-                                  statusCode: selectedLog.status || 200,
-                                  delayMs: 0,
-                                  contentType: 'application/json',
-                                  bodyContent:
-                                    selectedLog.responsePreview ||
-                                    selectedLog.requestBody ||
-                                    '{\n  "status": "ok"\n}',
-                                };
-                                updateActiveProfile((prof) => ({
-                                  ...prof,
-                                  bodyRules: [newRule, ...prof.bodyRules],
-                                }));
-                                setSelectedBodyId(newRule.id);
-                                showToast(t.inspectorRuleCreated);
-                              }}
-                              className="h-5 px-2 rounded bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-medium"
-                            >
-                              {t.inspectorCreateBodyRule}
-                            </button>
-                          </div>
-                          <div className="font-mono-code text-[10px] space-y-1">
-                            <div className="truncate text-rf-4" title={selectedLog.pageUrl}>
-                              <span className="text-rf-5">{t.inspectorPageOrigin}: </span>
-                              {selectedLog.pageUrl || '—'}
-                            </div>
-                            <div className="break-all text-rf-1">
-                              <span className="text-rf-5">{t.inspectorTargetUrl}: </span>
-                              <span className="text-blue-400 font-semibold">
-                                {selectedLog.method}
-                              </span>{' '}
-                              {selectedLog.url}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Token & Auth Carrier Breakdown */}
-                        <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-1.5">
-                          <div className="text-[10px] font-semibold uppercase tracking-wider text-rf-4">
-                            {t.inspectorAuthTitle}
-                          </div>
-                          {!selectedLog.authCarriers ||
-                          selectedLog.authCarriers.length === 0 ? (
-                            <div className="text-[10px] text-rf-5">
-                              {t.inspectorNoAuthDetected}
-                            </div>
-                          ) : (
-                            <div className="space-y-1 font-mono-code text-[10px]">
-                              {selectedLog.authCarriers.map((c, idx) => (
-                                <div
-                                  key={`${c.location}-${c.key}-${idx}`}
-                                  className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-rf-input border border-rf-border"
-                                >
-                                  <div className="flex items-center gap-1.5 min-w-0">
-                                    <span
-                                      className={`px-1.5 py-0.2 rounded border text-[9px] font-semibold uppercase ${badgeColor(
-                                        c.location
-                                      )}`}
-                                    >
-                                      {c.location}
+                          <div className="p-3 overflow-y-auto flex-1 space-y-3 font-mono-code text-[11px]">
+                            {inspectorSection === 'overview' && (
+                              <>
+                                {/* Source Page → Target Endpoint card */}
+                                <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-1.5">
+                                  <div>
+                                    <span className="text-[9px] uppercase font-sans font-semibold text-rf-5">
+                                      {t.inspectorSourcePage}
                                     </span>
-                                    <span className="text-rf-1 font-semibold">
-                                      {c.key}
+                                    <div className="text-rf-2 break-all">
+                                      {activeLog.pageUrl || '—'}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <span className="text-[9px] uppercase font-sans font-semibold text-rf-5">
+                                      {t.inspectorTargetUrl}
                                     </span>
-                                    {c.scheme && (
-                                      <span className="text-rf-5">({c.scheme})</span>
+                                    <div className="text-blue-300 break-all">
+                                      {activeLog.method} {activeLog.url}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-3 pt-1 text-[10px] text-rf-4 font-sans">
+                                    <span>
+                                      Status: <strong className="text-rf-1">{activeLog.status ?? '—'}</strong>
+                                    </span>
+                                    <span>
+                                      Credentials: <strong className="text-rf-1">{activeLog.credentials || 'same-origin'}</strong>
+                                    </span>
+                                    {activeLog.durationMs != null && (
+                                      <span>
+                                        Time: <strong className="text-rf-1">{activeLog.durationMs} ms</strong>
+                                      </span>
                                     )}
                                   </div>
-                                  <code className="text-emerald-300 truncate max-w-[200px]">
-                                    {c.preview}
-                                  </code>
                                 </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
 
-                        {/* Request Headers */}
-                        {selectedLog.requestHeaders &&
-                          Object.keys(selectedLog.requestHeaders).length > 0 && (
-                            <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-1.5">
-                              <div className="text-[10px] font-semibold uppercase tracking-wider text-rf-4">
-                                {t.inspectorReqHeaders} (
-                                {Object.keys(selectedLog.requestHeaders).length})
-                              </div>
-                              <div className="space-y-1 font-mono-code text-[10px]">
-                                {Object.entries(selectedLog.requestHeaders).map(
-                                  ([k, v]) => (
+                                {/* Token & Auth Radar */}
+                                <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-2">
+                                  <div className="text-[10px] font-sans font-semibold text-rf-2">
+                                    🔑 {t.inspectorTokenRadar}
+                                  </div>
+                                  {!activeLog.tokens || activeLog.tokens.length === 0 ? (
+                                    <div className="text-[11px] font-sans text-rf-5">
+                                      {t.inspectorNoTokens}
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-1.5">
+                                      {activeLog.tokens.map((tk, i) => (
+                                        <div
+                                          key={i}
+                                          className="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-rf-input border border-rf-border"
+                                        >
+                                          <div className="flex items-center gap-2 min-w-0">
+                                            <span
+                                              className={`px-1.5 py-0.5 rounded border text-[9px] uppercase font-semibold shrink-0 ${channelBadge(
+                                                tk.channel
+                                              )}`}
+                                            >
+                                              {tk.channel}
+                                            </span>
+                                            <span className="text-rf-1 font-semibold truncate">
+                                              {tk.key}
+                                            </span>
+                                          </div>
+                                          <span className="text-emerald-300 text-[10px] truncate">
+                                            {tk.preview}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Query Params if any */}
+                                {activeLog.queryParams &&
+                                  Object.keys(activeLog.queryParams).length > 0 && (
+                                    <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-1">
+                                      <div className="text-[10px] font-sans font-semibold text-rf-2">
+                                        {t.inspectorQueryParams}
+                                      </div>
+                                      {Object.entries(activeLog.queryParams).map(([k, v]) => (
+                                        <div key={k} className="flex justify-between gap-2 text-[11px]">
+                                          <span className="text-amber-300">{k}</span>
+                                          <span className="text-rf-2 break-all">{v}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                              </>
+                            )}
+
+                            {inspectorSection === 'reqHeaders' && (
+                              <div className="space-y-1">
+                                {!activeLog.requestHeaders ||
+                                Object.keys(activeLog.requestHeaders).length === 0 ? (
+                                  <div className="text-rf-5 font-sans text-xs py-6 text-center">
+                                    {t.inspectorEmpty}
+                                  </div>
+                                ) : (
+                                  Object.entries(activeLog.requestHeaders).map(([k, v]) => (
                                     <div
                                       key={k}
-                                      className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-rf-input border border-rf-border"
+                                      className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded bg-rf-raised border border-rf-border"
                                     >
-                                      <div className="truncate min-w-0">
-                                        <span className="text-blue-300">{k}</span>
-                                        <span className="text-rf-5">: </span>
+                                      <div className="min-w-0 flex-1">
+                                        <span className="text-blue-300 font-semibold">{k}: </span>
                                         <span className="text-rf-2 break-all">{v}</span>
                                       </div>
                                       <button
                                         onClick={() => {
                                           addHeaderRule(k, v, 'request', 'set');
-                                          showToast(t.inspectorRuleCreated);
+                                          showToast(`+ ${k}`);
                                         }}
-                                        className="h-5 px-1.5 rounded bg-rf-hover hover:bg-rf-strong text-[9px] text-rf-2 shrink-0"
+                                        className="h-5 px-1.5 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[9px] font-sans text-rf-3 shrink-0"
                                       >
-                                        {t.inspectorCreateHeaderRule}
+                                        {t.inspectorAddAsHeaderRule}
                                       </button>
                                     </div>
-                                  )
+                                  ))
                                 )}
                               </div>
-                            </div>
-                          )}
+                            )}
 
-                        {/* Query Parameters */}
-                        {selectedLog.queryParams &&
-                          Object.keys(selectedLog.queryParams).length > 0 && (
-                            <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-1.5">
-                              <div className="text-[10px] font-semibold uppercase tracking-wider text-rf-4">
-                                {t.inspectorQueryParams}
-                              </div>
-                              <div className="space-y-1 font-mono-code text-[10px]">
-                                {Object.entries(selectedLog.queryParams).map(
-                                  ([k, v]) => (
+                            {inspectorSection === 'resHeaders' && (
+                              <div className="space-y-1">
+                                {!activeLog.responseHeaders ||
+                                Object.keys(activeLog.responseHeaders).length === 0 ? (
+                                  <div className="text-rf-5 font-sans text-xs py-6 text-center">
+                                    {t.inspectorEmpty}
+                                  </div>
+                                ) : (
+                                  Object.entries(activeLog.responseHeaders).map(([k, v]) => (
                                     <div
                                       key={k}
-                                      className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-rf-input border border-rf-border"
+                                      className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded bg-rf-raised border border-rf-border"
                                     >
-                                      <span className="text-amber-300">?{k}</span>
-                                      <span className="text-rf-2 truncate">{v}</span>
+                                      <div className="min-w-0 flex-1">
+                                        <span className="text-purple-300 font-semibold">{k}: </span>
+                                        <span className="text-rf-2 break-all">{v}</span>
+                                      </div>
+                                      <button
+                                        onClick={() => {
+                                          addHeaderRule(k, v, 'response', 'set');
+                                          showToast(`+ ${k}`);
+                                        }}
+                                        className="h-5 px-1.5 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[9px] font-sans text-rf-3 shrink-0"
+                                      >
+                                        {t.inspectorAddAsHeaderRule}
+                                      </button>
                                     </div>
-                                  )
+                                  ))
                                 )}
                               </div>
-                            </div>
-                          )}
+                            )}
 
-                        {/* Request Body */}
-                        {selectedLog.requestBody && (
-                          <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-1.5">
-                            <div className="text-[10px] font-semibold uppercase tracking-wider text-rf-4">
-                              {t.inspectorReqBody}
-                            </div>
-                            <pre className="p-2 rounded bg-rf-deep border border-rf-border font-mono-code text-[10px] text-emerald-300 overflow-x-auto whitespace-pre-wrap break-all max-h-36">
-                              {selectedLog.requestBody}
-                            </pre>
-                          </div>
-                        )}
+                            {inspectorSection === 'reqBody' && (
+                              <div className="space-y-1.5">
+                                {!activeLog.requestBody ? (
+                                  <div className="text-rf-5 font-sans text-xs py-6 text-center">
+                                    {t.inspectorEmpty}
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div className="flex justify-end">
+                                      <button
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(activeLog.requestBody || '');
+                                          showToast('Copied');
+                                        }}
+                                        className="h-5 px-2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[10px] font-sans text-rf-3"
+                                      >
+                                        {t.inspectorCopyBody}
+                                      </button>
+                                    </div>
+                                    <pre className="p-2.5 rounded bg-rf-deep border border-rf-border text-emerald-300 whitespace-pre-wrap break-all leading-relaxed">
+                                      {formatPretty(activeLog.requestBody)}
+                                    </pre>
+                                  </>
+                                )}
+                              </div>
+                            )}
 
-                        {/* Response Preview */}
-                        {selectedLog.responsePreview && (
-                          <div className="rounded-md bg-rf-raised border border-rf-border p-2.5 space-y-1.5">
-                            <div className="text-[10px] font-semibold uppercase tracking-wider text-rf-4">
-                              {t.inspectorResPreview}
-                            </div>
-                            <pre className="p-2 rounded bg-rf-deep border border-rf-border font-mono-code text-[10px] text-rf-2 overflow-x-auto whitespace-pre-wrap break-all max-h-36">
-                              {selectedLog.responsePreview}
-                            </pre>
+                            {inspectorSection === 'resBody' && (
+                              <div className="space-y-1.5">
+                                {!activeLog.responseBody ? (
+                                  <div className="text-rf-5 font-sans text-xs py-6 text-center">
+                                    {t.inspectorEmpty}
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div className="flex justify-end">
+                                      <button
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(activeLog.responseBody || '');
+                                          showToast('Copied');
+                                        }}
+                                        className="h-5 px-2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[10px] font-sans text-rf-3"
+                                      >
+                                        {t.inspectorCopyBody}
+                                      </button>
+                                    </div>
+                                    <pre className="p-2.5 rounded bg-rf-deep border border-rf-border text-emerald-300 whitespace-pre-wrap break-all leading-relaxed">
+                                      {formatPretty(activeLog.responseBody)}
+                                    </pre>
+                                  </>
+                                )}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </>
-                    )}
+                        </>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          );
-        })()}
+                )}
+              </div>
+            );
+          })()}
 
         {/* =================================================================== */}
         {/* TAB 5: SETTINGS — Language, Theme, Version, Structure               */}

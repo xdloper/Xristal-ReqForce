@@ -4,11 +4,6 @@ node_modules/
 # Local-only Store Submission assets & packages (Chrome, Edge, Firefox stores)
 store-submission/
 
-# Temporary build directories
-dist/.raw/
-.tmp/
-.tmp-icon/
-
 # Environment & OS files
 .DS_Store
 *.log
