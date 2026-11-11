@@ -506,7 +506,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `reqforge-${activeProfile.name.toLowerCase().replace(/\s+/g, '-')}.json`;
+    a.download = `reqforce-${activeProfile.name.toLowerCase().replace(/\s+/g, '-')}.json`;
     a.click();
     URL.revokeObjectURL(url);
     showToast(t.toastExported);
@@ -588,7 +588,7 @@ export default function App() {
             />
             <div className="leading-tight">
               <div className="font-semibold text-[13px] tracking-tight text-rf-1">
-                ReqForge
+                ReqForce
               </div>
               <div className="text-[9px] text-rf-5 font-medium">by Xristal</div>
             </div>

@@ -67,7 +67,7 @@ export const DEFAULT_PROFILES: Profile[] = [
           {
             betaDashboard: true,
             newCheckoutFlow: true,
-            manipulatedBy: 'ReqForge',
+            manipulatedBy: 'ReqForce',
           },
           null,
           2

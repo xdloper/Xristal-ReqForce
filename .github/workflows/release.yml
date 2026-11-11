@@ -35,9 +35,9 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p dist/releases
-          (cd dist/chrome && zip -r "../releases/http-interceptor-${VERSION}-chrome.zip" .)
-          (cd dist/edge && zip -r "../releases/http-interceptor-${VERSION}-edge.zip" .)
-          (cd dist/firefox && zip -r "../releases/http-interceptor-${VERSION}-firefox.zip" .)
+          (cd dist/chrome && zip -r "../releases/reqforce-${VERSION}-chrome.zip" .)
+          (cd dist/edge && zip -r "../releases/reqforce-${VERSION}-edge.zip" .)
+          (cd dist/firefox && zip -r "../releases/reqforce-${VERSION}-firefox.zip" .)
 
       - name: Upload release archives artifact
         uses: actions/upload-artifact@v4
@@ -52,6 +52,6 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            dist/releases/http-interceptor-*-chrome.zip
-            dist/releases/http-interceptor-*-edge.zip
-            dist/releases/http-interceptor-*-firefox.zip
+            dist/releases/reqforce-*-chrome.zip
+            dist/releases/reqforce-*-edge.zip
+            dist/releases/reqforce-*-firefox.zip

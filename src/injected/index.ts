@@ -7,10 +7,10 @@ import {
 } from '../types/extension';
 
 (function () {
-  if ((window as unknown as { __REQFORGE_INSTALLED__?: boolean }).__REQFORGE_INSTALLED__) {
+  if ((window as unknown as { __REQFORCE_INSTALLED__?: boolean }).__REQFORCE_INSTALLED__) {
     return;
   }
-  (window as unknown as { __REQFORGE_INSTALLED__?: boolean }).__REQFORGE_INSTALLED__ = true;
+  (window as unknown as { __REQFORCE_INSTALLED__?: boolean }).__REQFORCE_INSTALLED__ = true;
 
   let currentState: ExtensionState | null = null;
   const MAX_BODY_CHARS = 4000;
@@ -553,7 +553,7 @@ import {
         status,
         headers: {
           'Content-Type': fullReplaceRule.contentType || 'application/json',
-          'X-Manipulated-By': 'ReqForge',
+          'X-Manipulated-By': 'ReqForce',
         },
       });
     }
@@ -588,7 +588,7 @@ import {
           credentials: cred,
         });
         const resHeaders = new Headers(response.headers);
-        resHeaders.set('X-Manipulated-By', 'ReqForge');
+        resHeaders.set('X-Manipulated-By', 'ReqForce');
         return new Response(resText, {
           status: finalStatus,
           statusText: response.statusText,

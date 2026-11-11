@@ -45,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Added prominent **AKTİF / PASİF** master toggle switch and paused-state banner to the top header bar.
-- Unified official ReqForge brand logo across the popup header, HTML favicon, extension manifest icons, and `README.md`.
+- Unified official ReqForce brand logo across the popup header, HTML favicon, extension manifest icons, and `README.md`.
 
 ## [1.3.1] - 2026-11-11
 
@@ -66,7 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.2.0] - 2026-11-11
 
 ### Changed
-- Redesigned UI into **ReqForge**, a general-purpose HTTP Header, Body Mocking, CORS & Network Routing developer tool.
+- Redesigned UI into **ReqForce**, a general-purpose HTTP Header, Body Mocking, CORS & Network Routing developer tool.
 - Made `scripts/background.js` 100% self-contained with zero external ES module imports and silent runtime error handling.
 - Moved Cluster/Telepresence context propagation into an optional collapsible section under the routing tab.
 

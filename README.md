@@ -1,15 +1,15 @@
 <div align="left">
-  <img src="public/icons/logo.svg" width="56" height="56" alt="ReqForge Logo" />
+  <img src="public/icons/logo.svg" width="56" height="56" alt="ReqForce Logo" />
 </div>
 
-# ReqForge
+# ReqForce
 
-[![CI](https://github.com/xdloper/dev-browser-manipulations/actions/workflows/ci.yml/badge.svg)](https://github.com/xdloper/dev-browser-manipulations/actions/workflows/ci.yml)
-[![Release](https://github.com/xdloper/dev-browser-manipulations/actions/workflows/release.yml/badge.svg)](https://github.com/xdloper/dev-browser-manipulations/actions/workflows/release.yml)
-[![Version](https://img.shields.io/github/v/release/xdloper/dev-browser-manipulations)](https://github.com/xdloper/dev-browser-manipulations/releases)
+[![CI](https://github.com/xdloper/Xristal-ReqForce/actions/workflows/ci.yml/badge.svg)](https://github.com/xdloper/Xristal-ReqForce/actions/workflows/ci.yml)
+[![Release](https://github.com/xdloper/Xristal-ReqForce/actions/workflows/release.yml/badge.svg)](https://github.com/xdloper/Xristal-ReqForce/actions/workflows/release.yml)
+[![Version](https://img.shields.io/github/v/release/xdloper/Xristal-ReqForce)](https://github.com/xdloper/Xristal-ReqForce/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
-**ReqForge** is an open-source, zero-telemetry Manifest V3 browser extension by **Xristal** for intercepting and mutating HTTP headers, overriding `fetch` / `XMLHttpRequest` payloads, mocking REST endpoints, injecting URL query parameters, bypassing CORS, and propagating distributed tracing / Kubernetes context headers across **Chrome, Edge, Brave, and Firefox**.
+**ReqForce** is an open-source, zero-telemetry Manifest V3 browser extension by **Xristal** for intercepting and mutating HTTP headers, overriding `fetch` / `XMLHttpRequest` payloads, mocking REST endpoints, injecting URL query parameters, bypassing CORS, and propagating distributed tracing / Kubernetes context headers across **Chrome, Edge, Brave, and Firefox**.
 
 ---
 
@@ -112,7 +112,7 @@ Keep using a hosted staging frontend while routing a single API service to your 
 ### 4. Instant cURL Replay & Mutation
 
 1. Copy any request from Chrome/Firefox DevTools via **Copy → Copy as cURL**.
-2. Open **ReqForge** → **Import cURL** → paste the command.
+2. Open **ReqForce** → **Import cURL** → paste the command.
 3. All `-H` request headers and `--data-raw` request bodies are parsed into editable, toggleable rules scoped to that host.
 
 ### 5. Distributed Tracing & Kubernetes Service Mesh Routing
@@ -148,7 +148,7 @@ dist/
 
 ## Installation
 
-Download a packaged `.zip` from [GitHub Releases](https://github.com/xdloper/dev-browser-manipulations/releases) or load directly from `dist/`:
+Download a packaged `.zip` from [GitHub Releases](https://github.com/xdloper/Xristal-ReqForce/releases) or load directly from `dist/`:
 
 - **Chrome / Brave:** Open `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select `dist/chrome`.
 - **Microsoft Edge:** Open `edge://extensions` → enable **Developer mode** → **Load unpacked** → select `dist/edge`.
@@ -159,8 +159,8 @@ Download a packaged `.zip` from [GitHub Releases](https://github.com/xdloper/dev
 ## Development & Semantic Versioning
 
 ```bash
-git clone https://github.com/xdloper/dev-browser-manipulations.git
-cd dev-browser-manipulations
+git clone https://github.com/xdloper/Xristal-ReqForce.git
+cd Xristal-ReqForce
 npm install
 
 # Build dist/chrome, dist/edge, and dist/firefox
