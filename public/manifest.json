@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ReqForce — HTTP Header, Body & Network Manipulator",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "author": "Xristal",
   "homepage_url": "https://github.com/xdloper/Xristal-ReqForce",
   "description": "Intercept and modify HTTP request/response headers, override JSON/text bodies, mock APIs, bypass CORS, and route URLs.",

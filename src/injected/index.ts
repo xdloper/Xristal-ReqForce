@@ -724,6 +724,23 @@ import {
     return null;
   }
 
+  function createBlockedResponse(ruleName: string): Response {
+    return new Response(
+      JSON.stringify({
+        blockedBy: 'ReqForce',
+        rule: ruleName,
+      }),
+      {
+        status: 499,
+        statusText: 'Blocked by ReqForce',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Blocked-By': 'ReqForce',
+        },
+      }
+    );
+  }
+
   function getMatchingBodyRules(
     url: string,
     method: string,
@@ -999,29 +1016,49 @@ import {
 
     const profile = getActiveProfile();
     if (!profile) {
-      const res = await originalFetch(input, init);
-      if (trafficMonitorOn()) {
-        const elapsed = Math.round(performance.now() - t0);
-        void readResponsePreview(res).then((resBody) => {
+      try {
+        const res = await originalFetch(input, init);
+        if (trafficMonitorOn()) {
+          const elapsed = Math.round(performance.now() - t0);
+          void readResponsePreview(res).then((resBody) => {
+            emitLog({
+              type: 'TRAFFIC',
+              transport: 'fetch',
+              method,
+              url: fullUrl,
+              ruleName: 'passthrough',
+              details: `HTTP ${res.status} (paused)`,
+              status: res.status,
+              durationMs: elapsed,
+              mutated: false,
+              requestHeaders: initHeaders,
+              responseHeaders: headersToRecord(res.headers),
+              requestBody: rawReqBody,
+              responseBody: resBody,
+              credentials: cred,
+            });
+          });
+        }
+        return res;
+      } catch (err) {
+        if (trafficMonitorOn()) {
           emitLog({
             type: 'TRAFFIC',
             transport: 'fetch',
             method,
             url: fullUrl,
-            ruleName: 'passthrough',
-            details: `HTTP ${res.status} (paused)`,
-            status: res.status,
-            durationMs: elapsed,
+            ruleName: 'network-error',
+            details: String(err),
+            status: 0,
+            durationMs: Math.round(performance.now() - t0),
             mutated: false,
             requestHeaders: initHeaders,
-            responseHeaders: headersToRecord(res.headers),
             requestBody: rawReqBody,
-            responseBody: resBody,
             credentials: cred,
           });
-        });
+        }
+        throw err;
       }
-      return res;
     }
 
     const blockRule = getMatchingBlockRule(fullUrl);
@@ -1040,7 +1077,7 @@ import {
         requestBody: rawReqBody,
         credentials: cred,
       });
-      throw new TypeError(`Blocked by ReqForce (${blockRule.filter})`);
+      return createBlockedResponse(blockRule.name);
     }
 
     const matchingBodyRules = getMatchingBodyRules(fullUrl, method, rawReqBody);
@@ -1054,29 +1091,49 @@ import {
     const shouldMutate = matchingHeaders.length > 0 || matchingBodyRules.length > 0;
 
     if (!shouldMutate) {
-      const res = await originalFetch(input, init);
-      if (trafficMonitorOn()) {
-        const elapsed = Math.round(performance.now() - t0);
-        void readResponsePreview(res).then((resBody) => {
+      try {
+        const res = await originalFetch(input, init);
+        if (trafficMonitorOn()) {
+          const elapsed = Math.round(performance.now() - t0);
+          void readResponsePreview(res).then((resBody) => {
+            emitLog({
+              type: 'TRAFFIC',
+              transport: 'fetch',
+              method,
+              url: fullUrl,
+              ruleName: '—',
+              details: `HTTP ${res.status}`,
+              status: res.status,
+              durationMs: elapsed,
+              mutated: false,
+              requestHeaders: initHeaders,
+              responseHeaders: headersToRecord(res.headers),
+              requestBody: rawReqBody,
+              responseBody: resBody,
+              credentials: cred,
+            });
+          });
+        }
+        return res;
+      } catch (err) {
+        if (trafficMonitorOn()) {
           emitLog({
             type: 'TRAFFIC',
             transport: 'fetch',
             method,
             url: fullUrl,
-            ruleName: '—',
-            details: `HTTP ${res.status}`,
-            status: res.status,
-            durationMs: elapsed,
+            ruleName: 'network-error',
+            details: String(err),
+            status: 0,
+            durationMs: Math.round(performance.now() - t0),
             mutated: false,
             requestHeaders: initHeaders,
-            responseHeaders: headersToRecord(res.headers),
             requestBody: rawReqBody,
-            responseBody: resBody,
             credentials: cred,
           });
-        });
+        }
+        throw err;
       }
-      return res;
     }
 
     const baseInit: RequestInit = { ...(init || {}) };
