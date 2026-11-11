@@ -1,5 +1,96 @@
 import { ExtensionState, InterceptLogEntry, Profile } from '../types/extension';
-import { extApi, INITIAL_STATE } from '../utils/browser';
+
+// Self-contained background script (zero external chunk imports so service_worker never fails to load)
+const extApi: typeof chrome =
+  (globalThis as unknown as { browser?: typeof chrome }).browser ||
+  globalThis.chrome;
+
+const FALLBACK_STATE: ExtensionState = {
+  globalEnabled: true,
+  activeProfileId: 'default-dev',
+  profiles: [
+    {
+      id: 'default-dev',
+      name: 'Default Workspace',
+      color: '#3b82f6',
+      telepresence: {
+        enabled: false,
+        interceptId: '',
+        baggageHeader: '',
+        customHeaderName: '',
+        customHeaderValue: '',
+        targetDomainFilter: '*',
+        propagateBaggage: true,
+        envoyForceTrace: false,
+      },
+      headerRules: [
+        {
+          id: 'hdr-1',
+          enabled: true,
+          name: 'x-debug-mode',
+          value: 'true',
+          operation: 'set',
+          target: 'request',
+          urlFilter: '*',
+          comment: 'Enable verbose debug headers',
+        },
+        {
+          id: 'hdr-2',
+          enabled: false,
+          name: 'Authorization',
+          value: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+          operation: 'set',
+          target: 'request',
+          urlFilter: '*',
+          comment: 'Override Bearer token',
+        },
+        {
+          id: 'hdr-3',
+          enabled: false,
+          name: 'Cache-Control',
+          value: 'no-cache, no-store, must-revalidate',
+          operation: 'set',
+          target: 'request',
+          urlFilter: '*',
+          comment: 'Disable browser & CDN cache',
+        },
+      ],
+      bodyRules: [
+        {
+          id: 'body-1',
+          enabled: true,
+          name: 'Override Feature Flags',
+          urlPattern: '/api/v1/features',
+          isRegex: false,
+          method: 'ALL',
+          mode: 'merge_response_json',
+          statusCode: 200,
+          delayMs: 0,
+          contentType: 'application/json',
+          bodyContent: JSON.stringify(
+            {
+              betaDashboard: true,
+              newCheckoutFlow: true,
+              environment: 'manipulated-by-reqforge',
+            },
+            null,
+            2
+          ),
+        },
+      ],
+      redirectCorsRules: [
+        {
+          id: 'cors-1',
+          enabled: false,
+          name: 'Bypass CORS Globally',
+          type: 'cors_bypass',
+          sourceUrlFilter: '*',
+        },
+      ],
+    },
+  ],
+  logs: [],
+};
 
 const ALL_RESOURCE_TYPES: chrome.declarativeNetRequest.ResourceType[] = [
   'main_frame' as chrome.declarativeNetRequest.ResourceType,
@@ -16,6 +107,10 @@ const ALL_RESOURCE_TYPES: chrome.declarativeNetRequest.ResourceType[] = [
   'other' as chrome.declarativeNetRequest.ResourceType,
 ];
 
+function sanitizeHeaderName(name: string): string {
+  return (name || '').trim().replace(/[^a-zA-Z0-9-_]/g, '');
+}
+
 function normalizeUrlFilter(filter: string): string {
   const trimmed = (filter || '').trim();
   if (!trimmed || trimmed === '*' || trimmed === '<all_urls>') {
@@ -25,7 +120,7 @@ function normalizeUrlFilter(filter: string): string {
 }
 
 function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule[] {
-  if (!state.globalEnabled) return [];
+  if (!state || !state.globalEnabled || !Array.isArray(state.profiles)) return [];
 
   const activeProfile: Profile | undefined =
     state.profiles.find((p) => p.id === state.activeProfileId) || state.profiles[0];
@@ -35,12 +130,12 @@ function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule
   const rules: chrome.declarativeNetRequest.Rule[] = [];
   let ruleIdCounter = 1;
 
-  // 1. Telepresence Quick Config Rules
+  // 1. Context / Telepresence / Tracing Headers
   const tp = activeProfile.telepresence;
   if (tp && tp.enabled) {
     const tpHeaders: chrome.declarativeNetRequest.ModifyHeaderInfo[] = [];
 
-    if (tp.interceptId.trim()) {
+    if (tp.interceptId?.trim()) {
       tpHeaders.push({
         header: 'x-telepresence-intercept-id',
         operation: 'set' as chrome.declarativeNetRequest.HeaderOperation,
@@ -48,7 +143,7 @@ function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule
       });
 
       if (tp.propagateBaggage) {
-        const baggageVal = tp.baggageHeader.trim()
+        const baggageVal = tp.baggageHeader?.trim()
           ? tp.baggageHeader.trim()
           : `telepresence-intercept-id=${tp.interceptId.trim()}`;
         tpHeaders.push({
@@ -57,7 +152,7 @@ function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule
           value: baggageVal,
         });
       }
-    } else if (tp.baggageHeader.trim()) {
+    } else if (tp.baggageHeader?.trim()) {
       tpHeaders.push({
         header: 'baggage',
         operation: 'set' as chrome.declarativeNetRequest.HeaderOperation,
@@ -65,9 +160,10 @@ function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule
       });
     }
 
-    if (tp.customHeaderName.trim() && tp.customHeaderValue.trim()) {
+    const customName = sanitizeHeaderName(tp.customHeaderName);
+    if (customName && tp.customHeaderValue?.trim()) {
       tpHeaders.push({
-        header: tp.customHeaderName.trim(),
+        header: customName,
         operation: 'set' as chrome.declarativeNetRequest.HeaderOperation,
         value: tp.customHeaderValue.trim(),
       });
@@ -98,17 +194,24 @@ function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule
     }
   }
 
-  // 2. Custom Request & Response Header Rules
-  for (const hRule of activeProfile.headerRules) {
-    if (!hRule.enabled || !hRule.name.trim()) continue;
+  // 2. Request & Response Header Rules
+  for (const hRule of activeProfile.headerRules || []) {
+    const safeName = sanitizeHeaderName(hRule.name);
+    if (!hRule.enabled || !safeName) continue;
+
+    // Chrome DNR does not allow 'append' on standard request headers; use 'set' safely if needed
+    const op =
+      hRule.target === 'request' && hRule.operation === 'append'
+        ? 'set'
+        : hRule.operation;
 
     const headerInfo: chrome.declarativeNetRequest.ModifyHeaderInfo = {
-      header: hRule.name.trim(),
-      operation: hRule.operation as chrome.declarativeNetRequest.HeaderOperation,
+      header: safeName,
+      operation: op as chrome.declarativeNetRequest.HeaderOperation,
     };
 
-    if (hRule.operation !== 'remove') {
-      headerInfo.value = hRule.value;
+    if (op !== 'remove') {
+      headerInfo.value = String(hRule.value ?? '');
     }
 
     const urlFilter = normalizeUrlFilter(hRule.urlFilter);
@@ -129,8 +232,8 @@ function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule
     });
   }
 
-  // 3. Redirect & CORS Bypass Rules
-  for (const rcRule of activeProfile.redirectCorsRules) {
+  // 3. Redirect & CORS Rules
+  for (const rcRule of activeProfile.redirectCorsRules || []) {
     if (!rcRule.enabled) continue;
     const urlFilter = normalizeUrlFilter(rcRule.sourceUrlFilter);
 
@@ -155,11 +258,6 @@ function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule
               header: 'Access-Control-Allow-Headers',
               operation: 'set' as chrome.declarativeNetRequest.HeaderOperation,
               value: '*',
-            },
-            {
-              header: 'Access-Control-Allow-Credentials',
-              operation: 'set' as chrome.declarativeNetRequest.HeaderOperation,
-              value: 'true',
             },
           ],
         },
@@ -210,7 +308,7 @@ function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule
 }
 
 function countActiveRules(state: ExtensionState): number {
-  if (!state.globalEnabled) return 0;
+  if (!state || !state.globalEnabled || !Array.isArray(state.profiles)) return 0;
   const activeProfile =
     state.profiles.find((p) => p.id === state.activeProfileId) || state.profiles[0];
   if (!activeProfile) return 0;
@@ -219,16 +317,20 @@ function countActiveRules(state: ExtensionState): number {
   const tp = activeProfile.telepresence;
   if (
     tp?.enabled &&
-    (tp.interceptId.trim() ||
-      tp.baggageHeader.trim() ||
-      (tp.customHeaderName.trim() && tp.customHeaderValue.trim()) ||
+    (tp.interceptId?.trim() ||
+      tp.baggageHeader?.trim() ||
+      (tp.customHeaderName?.trim() && tp.customHeaderValue?.trim()) ||
       tp.envoyForceTrace)
   ) {
     count += 1;
   }
-  count += activeProfile.headerRules.filter((r) => r.enabled && r.name.trim()).length;
-  count += activeProfile.bodyRules.filter((r) => r.enabled && r.urlPattern.trim()).length;
-  count += activeProfile.redirectCorsRules.filter((r) => r.enabled).length;
+  count += (activeProfile.headerRules || []).filter(
+    (r) => r.enabled && sanitizeHeaderName(r.name)
+  ).length;
+  count += (activeProfile.bodyRules || []).filter(
+    (r) => r.enabled && r.urlPattern?.trim()
+  ).length;
+  count += (activeProfile.redirectCorsRules || []).filter((r) => r.enabled).length;
   return count;
 }
 
@@ -237,72 +339,93 @@ async function syncAllRules(state?: ExtensionState) {
     let currentState = state;
     if (!currentState) {
       const stored = await extApi.storage.local.get('devManipulatorState');
-      currentState = stored?.devManipulatorState || INITIAL_STATE;
+      currentState = stored?.devManipulatorState || FALLBACK_STATE;
     }
 
     if (!currentState) return;
 
-    // Update declarativeNetRequest dynamic rules
     if (extApi.declarativeNetRequest) {
       const existingRules = await extApi.declarativeNetRequest.getDynamicRules();
       const removeRuleIds = existingRules.map((r) => r.id);
       const addRules = buildDnrRules(currentState);
 
-      await extApi.declarativeNetRequest.updateDynamicRules({
-        removeRuleIds,
-        addRules,
-      });
+      try {
+        await extApi.declarativeNetRequest.updateDynamicRules({
+          removeRuleIds,
+          addRules,
+        });
+      } catch {
+        // Fallback: clear old rules and apply valid rules one by one so a single invalid regex never breaks everything
+        await extApi.declarativeNetRequest.updateDynamicRules({
+          removeRuleIds,
+          addRules: [],
+        });
+        for (const rule of addRules) {
+          try {
+            await extApi.declarativeNetRequest.updateDynamicRules({
+              removeRuleIds: [],
+              addRules: [rule],
+            });
+          } catch {
+            // Skip malformed user rule silently
+          }
+        }
+      }
     }
 
-    // Update Action Badge
     const activeCount = countActiveRules(currentState);
     if (extApi.action) {
       if (!currentState.globalEnabled) {
         await extApi.action.setBadgeText({ text: 'OFF' });
-        await extApi.action.setBadgeBackgroundColor({ color: '#64748b' });
+        await extApi.action.setBadgeBackgroundColor({ color: '#52525b' });
       } else if (activeCount > 0) {
         await extApi.action.setBadgeText({ text: String(activeCount) });
-        await extApi.action.setBadgeBackgroundColor({ color: '#4f46e5' });
+        await extApi.action.setBadgeBackgroundColor({ color: '#2563eb' });
       } else {
         await extApi.action.setBadgeText({ text: '' });
       }
     }
 
-    // Broadcast updated state to all open tabs so content/injected scripts update immediately
+    // Only message HTTP/HTTPS tabs where content script is actually running
     if (extApi.tabs) {
-      const tabs = await extApi.tabs.query({});
+      const tabs = await extApi.tabs.query({ url: ['http://*/*', 'https://*/*'] });
       for (const tab of tabs) {
         if (tab.id) {
-          extApi.tabs
-            .sendMessage(tab.id, {
-              type: 'STATE_UPDATED',
-              state: currentState,
-            })
-            .catch(() => {
-              // Ignore tabs where content script isn't running (e.g. chrome://)
-            });
+          try {
+            extApi.tabs.sendMessage(
+              tab.id,
+              {
+                type: 'STATE_UPDATED',
+                state: currentState,
+              },
+              () => {
+                // Consume chrome.runtime.lastError so Chrome never logs an unchecked runtime error
+                void extApi.runtime.lastError;
+              }
+            );
+          } catch {
+            // Ignore
+          }
         }
       }
     }
-  } catch (err) {
-    console.error('[DevManipulator] Error syncing rules:', err);
+  } catch {
+    // Prevent unhandled service worker rejections
   }
 }
 
-// Initialize on install or startup
 extApi.runtime.onInstalled.addListener(async () => {
   const stored = await extApi.storage.local.get('devManipulatorState');
   if (!stored?.devManipulatorState) {
-    await extApi.storage.local.set({ devManipulatorState: INITIAL_STATE });
+    await extApi.storage.local.set({ devManipulatorState: FALLBACK_STATE });
   }
-  await syncAllRules(stored?.devManipulatorState || INITIAL_STATE);
+  await syncAllRules(stored?.devManipulatorState || FALLBACK_STATE);
 });
 
 extApi.runtime.onStartup?.addListener(() => {
   syncAllRules();
 });
 
-// Listen for messages from Popup or Content Script
 extApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === 'SYNC_STATE') {
     syncAllRules(message.state).then(() => sendResponse({ ok: true }));
@@ -311,7 +434,7 @@ extApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message?.type === 'GET_STATE_FOR_TAB') {
     extApi.storage.local.get('devManipulatorState').then((data) => {
-      sendResponse({ state: data?.devManipulatorState || INITIAL_STATE });
+      sendResponse({ state: data?.devManipulatorState || FALLBACK_STATE });
     });
     return true;
   }
@@ -319,8 +442,8 @@ extApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === 'ADD_INTERCEPT_LOG') {
     const newEntry: InterceptLogEntry = message.entry;
     extApi.storage.local.get('devManipulatorState').then(async (data) => {
-      const st: ExtensionState = data?.devManipulatorState || INITIAL_STATE;
-      const updatedLogs = [newEntry, ...(st.logs || [])].slice(0, 80);
+      const st: ExtensionState = data?.devManipulatorState || FALLBACK_STATE;
+      const updatedLogs = [newEntry, ...(st.logs || [])].slice(0, 100);
       const nextState: ExtensionState = { ...st, logs: updatedLogs };
       await extApi.storage.local.set({ devManipulatorState: nextState });
       sendResponse({ ok: true });

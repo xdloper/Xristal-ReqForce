@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-11-11
+
+### Changed
+- Redesigned UI into **ReqForge**, a general-purpose HTTP Header, Body Mocking, CORS & Network Routing developer tool.
+- Made `scripts/background.js` 100% self-contained with zero external ES module imports and silent runtime error handling to eliminate Chrome extension service worker warnings.
+- Moved Cluster/Telepresence context propagation into an optional collapsible section under the **CORS, Redirect & Context** tab.
+
 ## [1.1.0] - 2026-11-11
 
 ### Added

@@ -1,66 +1,64 @@
 import { ExtensionState, Profile } from '../types/extension';
 
-// Cross-browser API wrapper (works seamlessly in Chrome, Edge, Brave, Opera, and Firefox)
 export const extApi: typeof chrome =
   (globalThis as unknown as { browser?: typeof chrome }).browser ||
   globalThis.chrome;
 
 export const DEFAULT_PROFILES: Profile[] = [
   {
-    id: 'default-telepresence',
-    name: 'Telepresence & Local Dev',
-    color: '#6366f1',
+    id: 'default-dev',
+    name: 'Default Workspace',
+    color: '#3b82f6',
     telepresence: {
-      enabled: true,
+      enabled: false,
       interceptId: '',
       baggageHeader: '',
-      customHeaderName: 'x-dev-user',
-      customHeaderValue: 'local-developer',
+      customHeaderName: 'x-request-env',
+      customHeaderValue: 'local-dev',
       targetDomainFilter: '*',
       propagateBaggage: true,
       envoyForceTrace: false,
     },
     headerRules: [
       {
-        id: 'tp-sample-1',
-        enabled: false,
-        name: 'x-telepresence-intercept-id',
-        value: 'my-laptop-intercept-01',
-        operation: 'set',
-        target: 'request',
-        urlFilter: '*',
-        comment: 'Kubernetes Telepresence Intercept ID',
-        isTelepresence: true,
-      },
-      {
-        id: 'hdr-sample-2',
-        enabled: false,
+        id: 'hdr-1',
+        enabled: true,
         name: 'x-debug-mode',
         value: 'true',
         operation: 'set',
         target: 'request',
         urlFilter: '*',
-        comment: 'Backend debug flag',
+        comment: 'Enable backend debug mode',
       },
       {
-        id: 'hdr-sample-3',
+        id: 'hdr-2',
+        enabled: false,
+        name: 'Authorization',
+        value: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        operation: 'set',
+        target: 'request',
+        urlFilter: '*',
+        comment: 'Inject JWT Token',
+      },
+      {
+        id: 'hdr-3',
         enabled: false,
         name: 'Cache-Control',
         value: 'no-cache, no-store, must-revalidate',
         operation: 'set',
         target: 'request',
         urlFilter: '*',
-        comment: 'Disable cache during debugging',
+        comment: 'Bypass cache',
       },
     ],
     bodyRules: [
       {
-        id: 'body-sample-1',
-        enabled: false,
-        name: 'Override Feature Flags JSON',
+        id: 'body-1',
+        enabled: true,
+        name: 'Feature Flags Override',
         urlPattern: '/api/v1/features',
         isRegex: false,
-        method: 'GET',
+        method: 'ALL',
         mode: 'merge_response_json',
         statusCode: 200,
         delayMs: 0,
@@ -68,26 +66,28 @@ export const DEFAULT_PROFILES: Profile[] = [
         bodyContent: JSON.stringify(
           {
             betaDashboard: true,
-            telepresenceDebugBanner: true,
-            maxUploadSizeMb: 500,
+            newCheckoutFlow: true,
+            manipulatedBy: 'ReqForge',
           },
           null,
           2
         ),
       },
       {
-        id: 'body-sample-2',
+        id: 'body-2',
         enabled: false,
-        name: 'Inject Dev Flag into POST Request Body',
+        name: 'Mock 503 Maintenance Response',
         urlPattern: '/api/v1/checkout',
         isRegex: false,
         method: 'POST',
-        mode: 'merge_request_json',
-        delayMs: 0,
+        mode: 'replace_response',
+        statusCode: 503,
+        delayMs: 800,
+        contentType: 'application/json',
         bodyContent: JSON.stringify(
           {
-            dryRun: true,
-            debugEnvironment: 'telepresence-local',
+            error: 'SERVICE_UNAVAILABLE',
+            message: 'Simulated maintenance response',
           },
           null,
           2
@@ -96,26 +96,26 @@ export const DEFAULT_PROFILES: Profile[] = [
     ],
     redirectCorsRules: [
       {
-        id: 'cors-sample-1',
+        id: 'cors-1',
         enabled: false,
-        name: 'Allow CORS on All API Responses',
+        name: 'Allow CORS on All Domains',
         type: 'cors_bypass',
         sourceUrlFilter: '*',
       },
     ],
   },
   {
-    id: 'staging-env',
-    name: 'Staging / QA Test',
+    id: 'staging-profile',
+    name: 'Staging / QA',
     color: '#10b981',
     telepresence: {
       enabled: false,
       interceptId: '',
       baggageHeader: '',
-      customHeaderName: 'x-staging-env',
-      customHeaderValue: 'qa-cluster',
+      customHeaderName: '',
+      customHeaderValue: '',
       targetDomainFilter: '*',
-      propagateBaggage: false,
+      propagateBaggage: true,
       envoyForceTrace: false,
     },
     headerRules: [],
@@ -126,7 +126,7 @@ export const DEFAULT_PROFILES: Profile[] = [
 
 export const INITIAL_STATE: ExtensionState = {
   globalEnabled: true,
-  activeProfileId: 'default-telepresence',
+  activeProfileId: 'default-dev',
   profiles: DEFAULT_PROFILES,
   logs: [],
 };
@@ -143,8 +143,7 @@ export async function loadExtensionState(): Promise<ExtensionState> {
     }
     await extApi.storage.local.set({ devManipulatorState: INITIAL_STATE });
     return INITIAL_STATE;
-  } catch (err) {
-    console.error('Failed to load state:', err);
+  } catch {
     return INITIAL_STATE;
   }
 }
@@ -153,9 +152,10 @@ export async function saveExtensionState(state: ExtensionState): Promise<void> {
   try {
     if (!extApi?.storage?.local) return;
     await extApi.storage.local.set({ devManipulatorState: state });
-    // Notify background script to resync declarativeNetRequest rules & content scripts
-    extApi.runtime?.sendMessage({ type: 'SYNC_STATE', state }).catch(() => {});
-  } catch (err) {
-    console.error('Failed to save state:', err);
+    extApi.runtime?.sendMessage({ type: 'SYNC_STATE', state }, () => {
+      void extApi.runtime?.lastError;
+    });
+  } catch {
+    // Ignore
   }
 }
