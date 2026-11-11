@@ -1,18 +1,30 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
-  <rect width="128" height="128" rx="26" fill="#0d0f12"/>
-  <g transform="translate(64, 64) scale(1.18) translate(-93.6, -47.2)">
-    <path
-      d="M93.9,46.4c9.3,9.5,13.8,17.9,23.5,17.9s17.5-7.8,17.5-17.5s-7.8-17.6-17.5-17.5c-9.7,0.1-13.3,7.2-22.1,17.1c-8.9,8.8-15.7,17.9-25.4,17.9s-17.5-7.8-17.5-17.5s7.8-17.5,17.5-17.5S86.2,38.6,93.9,46.4z"
-      stroke-miterlimit="10"
-      stroke-linejoin="round"
-      stroke-linecap="round"
-      stroke-width="5.5"
-      fill="none"
-      stroke="#4E4FEB"
-    />
-    <line x1="110" y1="24" x2="110" y2="46" stroke="#0d0f12" stroke-width="8" stroke-linecap="round"/>
-    <line x1="110" y1="25" x2="110" y2="45" stroke="#4E4FEB" stroke-width="4.5" stroke-linecap="round"/>
-    <line x1="80" y1="49" x2="80" y2="71" stroke="#0d0f12" stroke-width="8" stroke-linecap="round"/>
-    <line x1="80" y1="50" x2="80" y2="70" stroke="#4E4FEB" stroke-width="4.5" stroke-linecap="round"/>
-  </g>
+  <rect width="128" height="128" rx="28" fill="#0B0C10"/>
+  <!-- Elegant ∞ ring — solid brand indigo, even-odd for crisp holes -->
+  <path
+    fill="#4E4FEB"
+    fill-rule="evenodd"
+    d="M64 46.5
+       C70.8 37.2 77.6 32 86.5 32
+       C98.6 32 108 41.8 108 56
+       C108 70.2 98.6 80 86.5 80
+       C77.6 80 70.8 74.8 64 65.5
+       C57.2 74.8 50.4 80 41.5 80
+       C29.4 80 20 70.2 20 56
+       C20 41.8 29.4 32 41.5 32
+       C50.4 32 57.2 37.2 64 46.5
+       Z
+       M41.5 43
+       C35.2 43 30.5 48.4 30.5 56
+       C30.5 63.6 35.2 69 41.5 69
+       C48.2 69 53.4 64.2 59 56
+       C53.4 47.8 48.2 43 41.5 43
+       Z
+       M86.5 43
+       C79.8 43 74.6 47.8 69 56
+       C74.6 64.2 79.8 69 86.5 69
+       C92.8 69 97.5 63.6 97.5 56
+       C97.5 48.4 92.8 43 86.5 43
+       Z"
+  />
 </svg>

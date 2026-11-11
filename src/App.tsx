@@ -577,7 +577,7 @@ export default function App() {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2.5">
             <XristalLogo
-              className="h-5 w-8"
+              className="h-7 w-7 shrink-0"
               disabled={!state.globalEnabled}
             />
             <div className="leading-tight">
