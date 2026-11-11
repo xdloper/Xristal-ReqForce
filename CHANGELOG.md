@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.6] - 2026-11-12
+
+### Added
+- **Live `{{` Variable Autocomplete**: Typing `{{` inside any Header value, JSON Body payload, Query Param value, or Redirect URL opens an instant autocomplete dropdown showing your custom workspace variables first (with their live preview values) alongside built-in macros (`{{uuid}}`, `{{timestamp}}`, `{{isoDate}}`, `{{randomInt}}`, `{{randomHex}}`). Supports keyboard navigation (`↑` / `↓`, `Enter`, `Tab`, `Esc`) and mouse click.
+
 ## [1.8.5] - 2026-11-12
 
 ### Fixed

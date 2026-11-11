@@ -78,6 +78,232 @@ const HEADER_TEMPLATES: Array<{
   { labelKey: 'tplStripCsp', name: 'Content-Security-Policy', value: '', target: 'response', op: 'remove' },
 ];
 
+const BUILTIN_MACROS = [
+  { key: 'uuid', preview: 'UUID v4', isBuiltIn: true },
+  { key: 'timestamp', preview: 'Unix ms', isBuiltIn: true },
+  { key: 'isoDate', preview: 'ISO-8601', isBuiltIn: true },
+  { key: 'randomInt', preview: '6-digit int', isBuiltIn: true },
+  { key: 'randomHex', preview: '8-char hex', isBuiltIn: true },
+];
+
+export type VarSuggestion = {
+  key: string;
+  preview: string;
+  isBuiltIn?: boolean;
+};
+
+function VarInput({
+  value,
+  onChange,
+  variables,
+  disabled,
+  placeholder,
+  className,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  variables: VarSuggestion[];
+  disabled?: boolean;
+  placeholder?: string;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [triggerPos, setTriggerPos] = useState<number | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase();
+    return variables.filter((v) => v.key.toLowerCase().includes(q));
+  }, [variables, query]);
+
+  const checkAutocomplete = (text: string, cursor: number) => {
+    const before = text.slice(0, cursor);
+    const match = before.match(/\{\{([a-zA-Z0-9_-]*)$/);
+    if (match) {
+      setTriggerPos(cursor - match[0].length);
+      setQuery(match[1]);
+      setActiveIndex(0);
+      setOpen(true);
+    } else {
+      setOpen(false);
+      setTriggerPos(null);
+    }
+  };
+
+  const applySuggestion = (v: VarSuggestion) => {
+    if (triggerPos === null) return;
+    const before = value.slice(0, triggerPos);
+    const afterRaw = value.slice(triggerPos + 2 + query.length);
+    const after = afterRaw.startsWith('}}') ? afterRaw.slice(2) : afterRaw;
+    onChange(`${before}{{${v.key}}}${after}`);
+    setOpen(false);
+    setTriggerPos(null);
+  };
+
+  return (
+    <div className="relative w-full">
+      <input
+        type="text"
+        disabled={disabled}
+        value={value}
+        placeholder={placeholder}
+        className={className}
+        onChange={(e) => {
+          const nextVal = e.target.value;
+          onChange(nextVal);
+          checkAutocomplete(nextVal, e.target.selectionStart ?? nextVal.length);
+        }}
+        onKeyDown={(e) => {
+          if (!open || filtered.length === 0) return;
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setActiveIndex((i) => (i + 1) % filtered.length);
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setActiveIndex((i) => (i - 1 + filtered.length) % filtered.length);
+          } else if (e.key === 'Enter' || e.key === 'Tab') {
+            e.preventDefault();
+            applySuggestion(filtered[activeIndex] || filtered[0]);
+          } else if (e.key === 'Escape') {
+            setOpen(false);
+          }
+        }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+      />
+      {open && filtered.length > 0 && (
+        <div className="absolute left-0 top-full mt-1 w-64 max-h-44 overflow-y-auto rounded-md bg-rf-raised border border-rf-border-strong shadow-2xl z-50 divide-y divide-rf-border/50">
+          {filtered.map((item, idx) => (
+            <button
+              key={item.key}
+              type="button"
+              onMouseDown={(ev) => {
+                ev.preventDefault();
+                applySuggestion(item);
+              }}
+              className={`w-full px-2.5 py-1.5 flex items-center justify-between gap-2 text-left font-mono-code text-[11px] ${
+                idx === activeIndex
+                  ? 'bg-blue-600/25 text-rf-1'
+                  : 'hover:bg-rf-hover text-rf-2'
+              }`}
+            >
+              <span className="text-amber-300 font-semibold truncate">
+                {`{{${item.key}}}`}
+              </span>
+              <span className="text-[10px] text-rf-4 truncate max-w-[110px]">
+                {item.preview}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VarTextarea({
+  value,
+  onChange,
+  variables,
+  className,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  variables: VarSuggestion[];
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [triggerPos, setTriggerPos] = useState<number | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase();
+    return variables.filter((v) => v.key.toLowerCase().includes(q));
+  }, [variables, query]);
+
+  const checkAutocomplete = (text: string, cursor: number) => {
+    const before = text.slice(0, cursor);
+    const match = before.match(/\{\{([a-zA-Z0-9_-]*)$/);
+    if (match) {
+      setTriggerPos(cursor - match[0].length);
+      setQuery(match[1]);
+      setActiveIndex(0);
+      setOpen(true);
+    } else {
+      setOpen(false);
+      setTriggerPos(null);
+    }
+  };
+
+  const applySuggestion = (v: VarSuggestion) => {
+    if (triggerPos === null) return;
+    const before = value.slice(0, triggerPos);
+    const afterRaw = value.slice(triggerPos + 2 + query.length);
+    const after = afterRaw.startsWith('}}') ? afterRaw.slice(2) : afterRaw;
+    onChange(`${before}{{${v.key}}}${after}`);
+    setOpen(false);
+    setTriggerPos(null);
+  };
+
+  return (
+    <div className="relative flex-1 flex flex-col w-full">
+      <textarea
+        value={value}
+        spellCheck={false}
+        className={className}
+        onChange={(e) => {
+          const nextVal = e.target.value;
+          onChange(nextVal);
+          checkAutocomplete(nextVal, e.target.selectionStart ?? nextVal.length);
+        }}
+        onKeyDown={(e) => {
+          if (!open || filtered.length === 0) return;
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setActiveIndex((i) => (i + 1) % filtered.length);
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setActiveIndex((i) => (i - 1 + filtered.length) % filtered.length);
+          } else if (e.key === 'Enter' || e.key === 'Tab') {
+            e.preventDefault();
+            applySuggestion(filtered[activeIndex] || filtered[0]);
+          } else if (e.key === 'Escape') {
+            setOpen(false);
+          }
+        }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+      />
+      {open && filtered.length > 0 && (
+        <div className="absolute left-3 top-3 w-64 max-h-44 overflow-y-auto rounded-md bg-rf-raised border border-rf-border-strong shadow-2xl z-50 divide-y divide-rf-border/50">
+          {filtered.map((item, idx) => (
+            <button
+              key={item.key}
+              type="button"
+              onMouseDown={(ev) => {
+                ev.preventDefault();
+                applySuggestion(item);
+              }}
+              className={`w-full px-2.5 py-1.5 flex items-center justify-between gap-2 text-left font-mono-code text-[11px] ${
+                idx === activeIndex
+                  ? 'bg-blue-600/25 text-rf-1'
+                  : 'hover:bg-rf-hover text-rf-2'
+              }`}
+            >
+              <span className="text-amber-300 font-semibold truncate">
+                {`{{${item.key}}}`}
+              </span>
+              <span className="text-[10px] text-rf-4 truncate max-w-[110px]">
+                {item.preview}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Switch({
   checked,
   onChange,
@@ -246,6 +472,17 @@ export default function App() {
 
   const activeProfile: Profile =
     state.profiles.find((p) => p.id === state.activeProfileId) || state.profiles[0];
+
+  const availableVariables: VarSuggestion[] = useMemo(() => {
+    const custom: VarSuggestion[] = (activeProfile.variables || [])
+      .filter((v) => v.enabled && v.key.trim())
+      .map((v) => ({
+        key: v.key.trim(),
+        preview: v.value || 'empty',
+        isBuiltIn: false,
+      }));
+    return [...custom, ...BUILTIN_MACROS];
+  }, [activeProfile.variables]);
 
   const updateActiveProfile = (updater: (prof: Profile) => Profile) => {
     updateState((prev) => ({
@@ -1041,12 +1278,12 @@ export default function App() {
                     </div>
 
                     <div className="col-span-4">
-                      <input
-                        type="text"
+                      <VarInput
                         disabled={rule.operation === 'remove'}
                         value={rule.operation === 'remove' ? '' : rule.value}
-                        onChange={(e) =>
-                          updateHeaderRule(rule.id, { value: e.target.value })
+                        variables={availableVariables}
+                        onChange={(val) =>
+                          updateHeaderRule(rule.id, { value: val })
                         }
                         placeholder={
                           rule.operation === 'remove'
@@ -1318,27 +1555,28 @@ export default function App() {
 
                     <div className="flex-1 flex flex-col">
                       <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 flex-wrap">
                           <span className="text-[10px] font-medium text-rf-4 mr-1">
                             {t.jsonPayload}
                           </span>
                           <span className="text-[9px] text-rf-5">{t.macrosHint}</span>
-                          {(['{{uuid}}', '{{timestamp}}', '{{isoDate}}', '{{randomInt}}'] as const).map(
-                            (macro) => (
+                          {availableVariables.slice(0, 6).map((v) => {
+                            const tag = `{{${v.key}}}`;
+                            return (
                               <button
-                                key={macro}
+                                key={v.key}
                                 type="button"
                                 onClick={() => {
-                                  navigator.clipboard.writeText(macro);
-                                  showToast(`Copied ${macro}`);
+                                  navigator.clipboard.writeText(tag);
+                                  showToast(`Copied ${tag}`);
                                 }}
-                                title="Click to copy macro"
+                                title={`${tag} → ${v.preview}`}
                                 className="px-1.5 py-0.2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border font-mono-code text-[9px] text-amber-300"
                               >
-                                {macro}
+                                {tag}
                               </button>
-                            )
-                          )}
+                            );
+                          })}
                         </div>
                         <button
                           onClick={() => {
@@ -1360,14 +1598,14 @@ export default function App() {
                           {t.formatJson}
                         </button>
                       </div>
-                      <textarea
+                      <VarTextarea
                         value={selected.bodyContent}
-                        onChange={(e) =>
+                        variables={availableVariables}
+                        onChange={(val) =>
                           updateBodyRule(selected.id, {
-                            bodyContent: e.target.value,
+                            bodyContent: val,
                           })
                         }
-                        spellCheck={false}
                         className="flex-1 w-full p-3 rounded-md bg-rf-deep border border-rf-border font-mono-code text-[11px] text-emerald-300 resize-none focus:outline-none focus:border-blue-500 leading-relaxed"
                       />
                     </div>
@@ -1482,12 +1720,12 @@ export default function App() {
 
                       {rule.type === 'redirect' && (
                         <div className="col-span-5">
-                          <input
-                            type="text"
+                          <VarInput
                             value={rule.destinationUrl || ''}
-                            onChange={(e) =>
+                            variables={availableVariables}
+                            onChange={(val) =>
                               updateRedirectCorsRule(rule.id, {
-                                destinationUrl: e.target.value,
+                                destinationUrl: val,
                               })
                             }
                             placeholder="http://localhost:8080/\1"
@@ -1509,12 +1747,12 @@ export default function App() {
                             placeholder="param_key"
                             className="w-full h-6 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-amber-300"
                           />
-                          <input
-                            type="text"
+                          <VarInput
                             value={rule.queryValue || ''}
-                            onChange={(e) =>
+                            variables={availableVariables}
+                            onChange={(val) =>
                               updateRedirectCorsRule(rule.id, {
-                                queryValue: e.target.value,
+                                queryValue: val,
                               })
                             }
                             placeholder="value"
