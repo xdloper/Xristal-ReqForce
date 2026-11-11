@@ -301,6 +301,30 @@ function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule
           },
         });
       }
+    } else if (rcRule.type === 'query_param' && rcRule.queryKey?.trim()) {
+      rules.push({
+        id: ruleIdCounter++,
+        priority: 75,
+        action: {
+          type: 'redirect' as chrome.declarativeNetRequest.RuleActionType,
+          redirect: {
+            transform: {
+              queryTransform: {
+                addOrReplaceParams: [
+                  {
+                    key: rcRule.queryKey.trim(),
+                    value: String(rcRule.queryValue ?? ''),
+                  },
+                ],
+              },
+            },
+          },
+        },
+        condition: {
+          ...(urlFilter !== '*' ? { urlFilter } : {}),
+          resourceTypes: ALL_RESOURCE_TYPES,
+        },
+      });
     }
   }
 

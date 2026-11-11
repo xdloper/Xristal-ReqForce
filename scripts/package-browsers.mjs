@@ -6,13 +6,17 @@ const distRoot = path.resolve('dist');
 
 const targets = ['chrome', 'edge', 'firefox'];
 
-function copyDir(src, dest) {
+function syncDirInPlace(src, dest) {
   fs.mkdirSync(dest, { recursive: true });
+  // Remove old entries inside dest without deleting the dest directory inode itself
+  for (const existing of fs.readdirSync(dest)) {
+    fs.rmSync(path.join(dest, existing), { recursive: true, force: true });
+  }
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
     if (entry.isDirectory()) {
-      copyDir(srcPath, destPath);
+      syncDirInPlace(srcPath, destPath);
     } else {
       fs.copyFileSync(srcPath, destPath);
     }
@@ -25,19 +29,14 @@ const baseManifest = JSON.parse(
 
 for (const target of targets) {
   const targetDir = path.join(distRoot, target);
-  if (fs.existsSync(targetDir)) {
-    fs.rmSync(targetDir, { recursive: true, force: true });
-  }
-  copyDir(rawBuildDir, targetDir);
+  syncDirInPlace(rawBuildDir, targetDir);
 
   const manifest = structuredClone(baseManifest);
 
   if (target === 'chrome' || target === 'edge') {
-    // Chromium browsers use service_worker and don't want gecko/background.scripts warnings
     delete manifest.background.scripts;
     delete manifest.browser_specific_settings;
   } else if (target === 'firefox') {
-    // Firefox uses background.scripts + browser_specific_settings.gecko
     delete manifest.background.service_worker;
   }
 
@@ -47,7 +46,6 @@ for (const target of targets) {
   );
 }
 
-// Remove temporary .raw build directory
 fs.rmSync(rawBuildDir, { recursive: true, force: true });
 
 console.log('Built clean browser folders inside dist/:');

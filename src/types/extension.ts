@@ -8,28 +8,28 @@ export interface HeaderRule {
   value: string;
   operation: HeaderOperation;
   target: HeaderTarget;
-  urlFilter: string; // e.g., "*" or "*://*.example.com/*" or "api.mysite.com"
+  urlFilter: string;
   comment?: string;
   isTelepresence?: boolean;
 }
 
 export type BodyRuleMode =
-  | 'replace_response'    // Mock / replace entire response body
-  | 'merge_response_json' // Merge JSON fields into real response body
-  | 'replace_request'     // Replace entire outgoing request body
-  | 'merge_request_json'; // Merge JSON fields into outgoing request body
+  | 'replace_response'
+  | 'merge_response_json'
+  | 'replace_request'
+  | 'merge_request_json';
 
 export interface BodyRule {
   id: string;
   enabled: boolean;
   name: string;
-  urlPattern: string; // Substring or Regex string
+  urlPattern: string;
   isRegex?: boolean;
   method: 'ALL' | 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   mode: BodyRuleMode;
-  statusCode?: number; // For response mocking (e.g. 200, 400, 500)
-  delayMs?: number;    // Simulate network latency
-  bodyContent: string; // JSON or plain text
+  statusCode?: number;
+  delayMs?: number;
+  bodyContent: string;
   contentType?: string;
 }
 
@@ -37,18 +37,20 @@ export interface RedirectCorsRule {
   id: string;
   enabled: boolean;
   name: string;
-  type: 'redirect' | 'cors_bypass';
-  sourceUrlFilter: string; // e.g. ||api.prod.com/v1/* or *://api.prod.com/*
-  destinationUrl?: string; // For redirect: e.g. http://localhost:8080/v1/\1
+  type: 'redirect' | 'cors_bypass' | 'query_param';
+  sourceUrlFilter: string;
+  destinationUrl?: string;
+  queryKey?: string;
+  queryValue?: string;
 }
 
 export interface TelepresenceConfig {
   enabled: boolean;
-  interceptId: string;        // x-telepresence-intercept-id
-  baggageHeader: string;      // baggage: telepresence-intercept-id=...
-  customHeaderName: string;   // e.g. x-dev-session or x-intercept-user
+  interceptId: string;
+  baggageHeader: string;
+  customHeaderName: string;
   customHeaderValue: string;
-  targetDomainFilter: string; // e.g. * or *.mycompany.com
+  targetDomainFilter: string;
   propagateBaggage: boolean;
   envoyForceTrace: boolean;
 }

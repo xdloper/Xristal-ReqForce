@@ -2,6 +2,8 @@
   "manifest_version": 3,
   "name": "ReqForge — HTTP Header, Body & Network Manipulator",
   "version": "1.2.0",
+  "author": "Xristal",
+  "homepage_url": "https://github.com/xdloper/dev-browser-manipulations",
   "description": "Intercept and modify HTTP request/response headers, override JSON/text bodies, mock APIs, bypass CORS, and route URLs.",
   "permissions": [
     "declarativeNetRequest",
@@ -16,7 +18,7 @@
   ],
   "action": {
     "default_popup": "index.html",
-    "default_title": "ReqForge HTTP Manipulator",
+    "default_title": "ReqForge by Xristal",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",
@@ -32,37 +34,25 @@
   },
   "background": {
     "service_worker": "scripts/background.js",
-    "scripts": [
-      "scripts/background.js"
-    ]
+    "scripts": ["scripts/background.js"]
   },
   "content_scripts": [
     {
-      "matches": [
-        "http://*/*",
-        "https://*/*"
-      ],
-      "js": [
-        "scripts/content.js"
-      ],
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["scripts/content.js"],
       "run_at": "document_start",
       "all_frames": true
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": [
-        "scripts/injected.js"
-      ],
-      "matches": [
-        "http://*/*",
-        "https://*/*"
-      ]
+      "resources": ["scripts/injected.js"],
+      "matches": ["http://*/*", "https://*/*"]
     }
   ],
   "browser_specific_settings": {
     "gecko": {
-      "id": "reqforge@local.dev",
+      "id": "reqforge@xristal.dev",
       "strict_min_version": "113.0"
     }
   }
