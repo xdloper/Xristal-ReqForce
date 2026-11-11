@@ -25,6 +25,7 @@ import {
 import {
   BodyRule,
   BodyRuleMode,
+  CustomVariable,
   ExtensionState,
   HeaderOperation,
   HeaderRule,
@@ -121,6 +122,7 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [activeDomainPattern, setActiveDomainPattern] = useState<string>('*');
   const [showCurlModal, setShowCurlModal] = useState(false);
+  const [showVarsModal, setShowVarsModal] = useState(false);
   const [curlInput, setCurlInput] = useState('');
   const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
   const [logSearch, setLogSearch] = useState('');
@@ -486,6 +488,36 @@ export default function App() {
     }));
   };
 
+  // Custom Variables ({{key}} -> value)
+  const addCustomVariable = () => {
+    const newVar: CustomVariable = {
+      id: `v-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      enabled: true,
+      key: '',
+      value: '',
+    };
+    updateActiveProfile((prof) => ({
+      ...prof,
+      variables: [newVar, ...(prof.variables || [])],
+    }));
+  };
+
+  const updateCustomVariable = (id: string, patch: Partial<CustomVariable>) => {
+    updateActiveProfile((prof) => ({
+      ...prof,
+      variables: (prof.variables || []).map((v) =>
+        v.id === id ? { ...v, ...patch } : v
+      ),
+    }));
+  };
+
+  const deleteCustomVariable = (id: string) => {
+    updateActiveProfile((prof) => ({
+      ...prof,
+      variables: (prof.variables || []).filter((v) => v.id !== id),
+    }));
+  };
+
   // Context / Cluster Routing
   const updateContextRouting = (patch: Partial<TelepresenceConfig>) => {
     updateActiveProfile((prof) => ({
@@ -711,8 +743,22 @@ export default function App() {
           )}
         </div>
 
-        {/* Right: cURL + Master Toggle — language/theme live under Settings */}
+        {/* Right: Variables + cURL + Master Toggle — language/theme live under Settings */}
         <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={() => setShowVarsModal(true)}
+            title={t.varsModalTitle}
+            className="h-7 px-2.5 rounded-md flex items-center gap-1.5 text-[11px] font-mono-code font-medium text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-colors"
+          >
+            <span>{t.varsButton}</span>
+            {activeProfile.variables &&
+              activeProfile.variables.filter((v) => v.enabled && v.key.trim()).length > 0 && (
+                <span className="px-1 rounded bg-amber-500/25 text-[10px]">
+                  {activeProfile.variables.filter((v) => v.enabled && v.key.trim()).length}
+                </span>
+              )}
+          </button>
+
           <button
             onClick={() => setShowCurlModal(true)}
             title={t.importCurlTitle}
@@ -3033,6 +3079,151 @@ export default function App() {
           {t.settingsAuthor} · v{appVersion}
         </span>
       </footer>
+
+      {/* Dynamic Macros & Custom Variables Modal */}
+      {showVarsModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-5 z-50">
+          <div className="w-full max-w-xl rounded-lg bg-rf-raised border border-rf-border-strong p-4 space-y-3 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-rf-1">
+                {t.varsModalTitle}
+              </span>
+              <button
+                onClick={() => setShowVarsModal(false)}
+                className="text-rf-4 hover:text-rf-1 text-xs"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-[11px] text-rf-4">{t.varsModalHint}</p>
+
+            {/* Built-in Dynamic Macros */}
+            <div className="rounded-md bg-rf-sunken border border-rf-border p-2.5 space-y-1.5">
+              <div className="text-[10px] font-semibold text-rf-3">
+                {t.varsBuiltInTitle}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { tag: '{{uuid}}', desc: 'UUID v4' },
+                  { tag: '{{timestamp}}', desc: 'Unix ms' },
+                  { tag: '{{isoDate}}', desc: 'ISO-8601' },
+                  { tag: '{{randomInt}}', desc: '6-digit int' },
+                  { tag: '{{randomHex}}', desc: '8-char hex' },
+                ].map((m) => (
+                  <button
+                    key={m.tag}
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(m.tag);
+                      showToast(`Copied ${m.tag}`);
+                    }}
+                    className="h-6 px-2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border flex items-center gap-1.5 text-[10px]"
+                  >
+                    <code className="font-mono-code text-amber-300 font-semibold">
+                      {m.tag}
+                    </code>
+                    <span className="text-rf-5">{m.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* User-defined Custom Variables */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-rf-2">
+                  {t.varsCustomTitle}
+                </span>
+                <button
+                  type="button"
+                  onClick={addCustomVariable}
+                  className="h-6 px-2.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-medium"
+                >
+                  {t.varsAdd}
+                </button>
+              </div>
+
+              <div className="max-h-52 overflow-y-auto divide-y divide-rf-border/60 rounded-md border border-rf-border bg-rf-deep">
+                {!activeProfile.variables ||
+                activeProfile.variables.length === 0 ? (
+                  <div className="py-8 text-center text-[11px] text-rf-5 px-4">
+                    {t.varsEmpty}
+                  </div>
+                ) : (
+                  activeProfile.variables.map((v) => (
+                    <div
+                      key={v.id}
+                      className={`grid grid-cols-12 gap-2 px-2.5 py-2 items-center ${
+                        !v.enabled ? 'opacity-50' : ''
+                      }`}
+                    >
+                      <div className="col-span-5 flex items-center gap-1.5">
+                        <Switch
+                          checked={v.enabled}
+                          onChange={(val) =>
+                            updateCustomVariable(v.id, { enabled: val })
+                          }
+                        />
+                        <div className="flex items-center flex-1 h-6 px-1.5 rounded bg-rf-input border border-rf-border font-mono-code text-[11px]">
+                          <span className="text-amber-400 select-none">{'{{'}</span>
+                          <input
+                            type="text"
+                            value={v.key}
+                            onChange={(e) =>
+                              updateCustomVariable(v.id, {
+                                key: e.target.value.replace(/[{}]/g, ''),
+                              })
+                            }
+                            placeholder={t.varsKeyPlaceholder}
+                            className="w-full bg-transparent text-amber-300 placeholder-rf-5 focus:outline-none px-0.5"
+                          />
+                          <span className="text-amber-400 select-none">{'}}'}</span>
+                        </div>
+                      </div>
+
+                      <div className="col-span-6">
+                        <input
+                          type="text"
+                          value={v.value}
+                          onChange={(e) =>
+                            updateCustomVariable(v.id, { value: e.target.value })
+                          }
+                          placeholder={t.varsValuePlaceholder}
+                          className="w-full h-6 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-emerald-300 placeholder-rf-5 focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+
+                      <div className="col-span-1 flex items-center justify-end gap-1">
+                        {v.key.trim() && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const tag = `{{${v.key.trim()}}}`;
+                              navigator.clipboard.writeText(tag);
+                              showToast(`Copied ${tag}`);
+                            }}
+                            title="Copy {{variable}}"
+                            className="text-rf-4 hover:text-rf-1"
+                          >
+                            <Copy className="w-3 h-3" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => deleteCustomVariable(v.id)}
+                          className="text-rf-5 hover:text-red-400"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* cURL Import Modal */}
       {showCurlModal && (

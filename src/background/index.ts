@@ -49,10 +49,24 @@ const ALL_RESOURCE_TYPES: chrome.declarativeNetRequest.ResourceType[] = [
   'other' as chrome.declarativeNetRequest.ResourceType,
 ];
 
-function expandMacros(input: string): string {
+function expandMacros(
+  input: string,
+  customVars?: Array<{ enabled: boolean; key: string; value: string }>
+): string {
   const raw = String(input ?? '');
   if (!raw.includes('{{')) return raw;
-  return raw
+
+  let out = raw;
+  if (Array.isArray(customVars)) {
+    for (const v of customVars) {
+      const k = String(v?.key ?? '').trim();
+      if (!v?.enabled || !k) continue;
+      const escaped = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      out = out.replace(new RegExp(`\\{\\{\\s*${escaped}\\s*\\}\\}`, 'g'), String(v.value ?? ''));
+    }
+  }
+
+  return out
     .replace(/\{\{\s*uuid\s*\}\}/gi, () =>
       typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
         ? crypto.randomUUID()
@@ -78,8 +92,11 @@ function sanitizeHeaderName(name: string): string {
   return String(name ?? '').trim().replace(/[^a-zA-Z0-9-_]/g, '');
 }
 
-function sanitizeHeaderValue(value: string): string {
-  return expandMacros(String(value ?? '')).replace(/[\r\n]/g, '');
+function sanitizeHeaderValue(
+  value: string,
+  customVars?: Array<{ enabled: boolean; key: string; value: string }>
+): string {
+  return expandMacros(String(value ?? ''), customVars).replace(/[\r\n]/g, '');
 }
 
 function normalizeUrlFilter(filter: string): string {
@@ -100,6 +117,7 @@ function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule
 
   const rules: chrome.declarativeNetRequest.Rule[] = [];
   let ruleIdCounter = 1;
+  const customVars = activeProfile.variables || [];
 
   // 1. Context / Telepresence / Tracing Headers
   const tp = activeProfile.telepresence;
@@ -107,16 +125,17 @@ function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule
     const tpHeaders: chrome.declarativeNetRequest.ModifyHeaderInfo[] = [];
 
     if (tp.interceptId?.trim()) {
+      const interceptVal = sanitizeHeaderValue(tp.interceptId.trim(), customVars);
       tpHeaders.push({
         header: 'x-telepresence-intercept-id',
         operation: 'set' as chrome.declarativeNetRequest.HeaderOperation,
-        value: tp.interceptId.trim(),
+        value: interceptVal,
       });
 
       if (tp.propagateBaggage) {
         const baggageVal = tp.baggageHeader?.trim()
-          ? tp.baggageHeader.trim()
-          : `telepresence-intercept-id=${tp.interceptId.trim()}`;
+          ? sanitizeHeaderValue(tp.baggageHeader.trim(), customVars)
+          : `telepresence-intercept-id=${interceptVal}`;
         tpHeaders.push({
           header: 'baggage',
           operation: 'set' as chrome.declarativeNetRequest.HeaderOperation,
@@ -127,7 +146,7 @@ function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule
       tpHeaders.push({
         header: 'baggage',
         operation: 'set' as chrome.declarativeNetRequest.HeaderOperation,
-        value: tp.baggageHeader.trim(),
+        value: sanitizeHeaderValue(tp.baggageHeader.trim(), customVars),
       });
     }
 
@@ -136,7 +155,7 @@ function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule
       tpHeaders.push({
         header: customName,
         operation: 'set' as chrome.declarativeNetRequest.HeaderOperation,
-        value: tp.customHeaderValue.trim(),
+        value: sanitizeHeaderValue(tp.customHeaderValue.trim(), customVars),
       });
     }
 
@@ -182,7 +201,7 @@ function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule
     };
 
     if (op !== 'remove') {
-      headerInfo.value = sanitizeHeaderValue(hRule.value);
+      headerInfo.value = sanitizeHeaderValue(hRule.value, customVars);
     }
 
     const urlFilter = normalizeUrlFilter(hRule.urlFilter);
@@ -238,7 +257,7 @@ function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule
         },
       });
     } else if (rcRule.type === 'redirect' && rcRule.destinationUrl?.trim()) {
-      const dest = rcRule.destinationUrl.trim();
+      const dest = expandMacros(rcRule.destinationUrl.trim(), customVars);
       const isRegexSubstitution = dest.includes('\\1') || urlFilter.startsWith('^');
 
       if (isRegexSubstitution) {
@@ -284,7 +303,7 @@ function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule
                 addOrReplaceParams: [
                   {
                     key: rcRule.queryKey.trim(),
-                    value: expandMacros(String(rcRule.queryValue ?? '')),
+                    value: expandMacros(String(rcRule.queryValue ?? ''), customVars),
                   },
                 ],
               },

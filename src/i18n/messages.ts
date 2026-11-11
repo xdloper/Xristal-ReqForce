@@ -128,6 +128,15 @@ export type Messages = {
   blockUrl: string;
   defaultBlockRuleName: string;
   tplReqIdMacro: string;
+  varsButton: string;
+  varsModalTitle: string;
+  varsModalHint: string;
+  varsBuiltInTitle: string;
+  varsCustomTitle: string;
+  varsAdd: string;
+  varsKeyPlaceholder: string;
+  varsValuePlaceholder: string;
+  varsEmpty: string;
   tabScope: string;
   curlModalTitle: string;
   curlModalHint: string;
@@ -306,6 +315,15 @@ export const en: Messages = {
   blockUrl: '+ Block URL',
   defaultBlockRuleName: 'Block Endpoint',
   tplReqIdMacro: 'Req ID ({{uuid}})',
+  varsButton: '{{x}} Variables',
+  varsModalTitle: 'Dynamic Macros & Custom {{Variables}}',
+  varsModalHint: 'Use {{variableName}} inside any Header value, Query param, URL Redirect, or JSON Body. Click any chip to copy.',
+  varsBuiltInTitle: 'Built-in Dynamic Macros (auto-generated on every request)',
+  varsCustomTitle: 'Workspace Custom Variables',
+  varsAdd: '+ Add Variable',
+  varsKeyPlaceholder: 'variableName (e.g. myToken)',
+  varsValuePlaceholder: 'Value (e.g. eyJhbGci...)',
+  varsEmpty: 'No custom variables yet. Click "+ Add Variable" to define your own {{key}}.',
   tabScope: 'Tab Scope',
   curlModalTitle: 'Import Rules from cURL',
   curlModalHint:
@@ -485,6 +503,15 @@ export const tr: Messages = {
   blockUrl: '+ URL Engelle',
   defaultBlockRuleName: 'Endpoint Engelle',
   tplReqIdMacro: 'Req ID ({{uuid}})',
+  varsButton: '{{x}} Değişkenler',
+  varsModalTitle: 'Dinamik Makrolar & Özel {{Değişkenler}}',
+  varsModalHint: 'Herhangi bir Header değerinde, Query parametresinde, Redirect veya JSON Body içinde {{degiskenAdi}} olarak kullanabilirsin. Kopyalamak için tıkla.',
+  varsBuiltInTitle: 'Hazır Dinamik Makrolar (her istekte otomatik üretilir)',
+  varsCustomTitle: 'Workspace Özel Değişkenlerin',
+  varsAdd: '+ Değişken Ekle',
+  varsKeyPlaceholder: 'degiskenAdi (örn. tokenim)',
+  varsValuePlaceholder: 'Değer (örn. eyJhbGci...)',
+  varsEmpty: 'Henüz özel değişken yok. Kendi {{anahtar}} değişkenini tanımlamak için "+ Değişken Ekle"ye bas.',
   tabScope: 'Sekme Kapsamı',
   curlModalTitle: 'cURL’den Kural İçe Aktar',
   curlModalHint:

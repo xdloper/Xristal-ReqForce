@@ -42,7 +42,20 @@ import {
   function expandMacros(input: string): string {
     const raw = String(input ?? '');
     if (!raw.includes('{{')) return raw;
-    return raw
+
+    let out = raw;
+    const profile = getActiveProfile();
+    const customVars = profile?.variables;
+    if (Array.isArray(customVars)) {
+      for (const v of customVars) {
+        const k = String(v?.key ?? '').trim();
+        if (!v?.enabled || !k) continue;
+        const escaped = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        out = out.replace(new RegExp(`\\{\\{\\s*${escaped}\\s*\\}\\}`, 'g'), String(v.value ?? ''));
+      }
+    }
+
+    return out
       .replace(/\{\{\s*uuid\s*\}\}/gi, () =>
         typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
           ? crypto.randomUUID()

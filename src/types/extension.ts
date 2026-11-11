@@ -57,6 +57,13 @@ export interface TelepresenceConfig {
   envoyForceTrace: boolean;
 }
 
+export interface CustomVariable {
+  id: string;
+  enabled: boolean;
+  key: string;
+  value: string;
+}
+
 export interface Profile {
   id: string;
   name: string;
@@ -65,6 +72,7 @@ export interface Profile {
   headerRules: HeaderRule[];
   bodyRules: BodyRule[];
   redirectCorsRules: RedirectCorsRule[];
+  variables?: CustomVariable[];
 }
 
 export type TokenChannel = 'header' | 'body' | 'query' | 'cookie';

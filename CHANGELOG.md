@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.1] - 2026-11-11
+
+### Added
+- **`{{x}} Variables` Manager**: Added a dedicated **`{{x}} Variables / Değişkenler`** button and modal in the top bar where users can define custom `{{variableName}} → value` pairs per workspace and copy built-in dynamic macros (`{{uuid}}`, `{{timestamp}}`, `{{isoDate}}`, `{{randomInt}}`, `{{randomHex}}`). Custom variables are automatically expanded across Header values, Query params, URL Redirects, and JSON Bodies.
+
 ## [1.8.0] - 2026-11-11
 
 ### Added

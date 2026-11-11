@@ -36,7 +36,7 @@ When you open the **Inspector** tab on any website, ReqForce gives you an instan
 | **Outgoing & Response Inspector** | Flattens request/response fields by channel (`Body`, `Query`, `Header`, `Cookie`), decodes JWTs, and shows side-by-side **Original vs. Sent** diffs when rules mutate a payload. |
 | **Live Request Replay** | Edit and resend any captured request directly from the Inspector (`▶ Replay`) and view the live HTTP status, latency, and response body. |
 | **Click-to-Mutate (`⚡ Override`)** | Turn any captured outgoing key (`Body` JSON path, `Query` param, or `Header`) into a live mutation rule in one click. |
-| **Dynamic Macros** | Use `{{uuid}}`, `{{timestamp}}`, `{{isoDate}}`, `{{randomInt}}`, or `{{randomHex}}` inside header values, query params, or JSON bodies — generated fresh on every request. |
+| **Dynamic Macros & Custom `{{Variables}}`** | Click **`{{x}} Variables`** in the top bar to define your own reusable workspace variables (e.g., `{{myToken}}`, `{{tenantId}}`) alongside built-in macros (`{{uuid}}`, `{{timestamp}}`, `{{isoDate}}`, `{{randomInt}}`, `{{randomHex}}`). |
 | **GraphQL Smart Targeting** | Labels GraphQL requests with their `operationName` (`GQL:CreateOrder`) and lets Body rules target a single GraphQL operation instead of the whole `/graphql` endpoint. |
 | **JSON Merge & Endpoint Mocking** | Patch specific keys inside a live JSON request/response (`Shallow Merge`) or replace the entire response with custom status codes (`200`, `401`, `429`, `503`) and artificial latency (`ms`). |
 | **Request Blocker (`🚫 Block`)** | Block specific endpoints, analytics trackers, or microservices (`*sentry.io*`, `/api/v1/telemetry`) to test how the frontend handles network failures. |
