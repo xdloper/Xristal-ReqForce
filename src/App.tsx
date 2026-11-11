@@ -18,7 +18,6 @@ import {
   Terminal,
   Trash2,
   Upload,
-  Zap,
 } from 'lucide-react';
 import {
   BodyRule,
@@ -505,22 +504,23 @@ export default function App() {
   return (
     <div className="flex flex-col h-[560px] bg-[#0d0f12] text-zinc-200 select-none">
       {/* Top Application Header */}
-      <header className="flex items-center justify-between h-11 px-3.5 bg-[#12151a] border-b border-zinc-800/80">
-        {/* Left: Brand & Workspace */}
+      <header className="flex items-center justify-between h-12 px-3.5 bg-[#12151a] border-b border-zinc-800/80">
+        {/* Left: Our Official Logo, Brand & Workspace */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <div
-              className={`w-6 h-6 rounded-md flex items-center justify-center transition-colors ${
-                state.globalEnabled
-                  ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
-                  : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
+          <div className="flex items-center gap-2.5">
+            <img
+              src="/icons/icon-48.png"
+              alt="ReqForge Logo"
+              className={`w-6 h-6 rounded transition-opacity ${
+                state.globalEnabled ? 'opacity-100' : 'opacity-40 grayscale'
               }`}
-            >
-              <Zap className="w-3.5 h-3.5" />
+            />
+            <div className="leading-tight">
+              <div className="font-semibold text-[13px] tracking-tight text-zinc-100">
+                ReqForge
+              </div>
+              <div className="text-[9px] text-zinc-500 font-medium">by Xristal</div>
             </div>
-            <span className="font-semibold text-[13px] tracking-tight text-zinc-100">
-              ReqForge
-            </span>
           </div>
 
           <div className="h-4 w-[1px] bg-zinc-800" />
@@ -631,6 +631,9 @@ export default function App() {
             </label>
           </div>
 
+          <div className="h-4 w-[1px] bg-zinc-800 mx-0.5" />
+
+          {/* Prominent Active / Passive Master Switch */}
           <div
             onClick={() =>
               updateState((prev) => ({
@@ -638,23 +641,43 @@ export default function App() {
                 globalEnabled: !prev.globalEnabled,
               }))
             }
-            className={`flex items-center gap-2 h-7 px-2.5 rounded-md border cursor-pointer transition-colors ${
+            title="Enable or pause all extension interceptions"
+            className={`flex items-center gap-2 h-7 px-2.5 rounded-md border cursor-pointer transition-all ${
               state.globalEnabled
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                : 'bg-zinc-900 border-zinc-800 text-zinc-500'
+                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
             }`}
           >
-            <span
-              className={`w-2 h-2 rounded-full ${
-                state.globalEnabled ? 'bg-emerald-400' : 'bg-zinc-600'
-              }`}
+            <Switch
+              size="sm"
+              checked={state.globalEnabled}
+              onChange={(val) =>
+                updateState((prev) => ({ ...prev, globalEnabled: val }))
+              }
             />
-            <span className="text-[11px] font-medium">
-              {state.globalEnabled ? 'Active' : 'Paused'}
+            <span className="text-[11px] font-semibold tracking-wide min-w-[42px] text-center">
+              {state.globalEnabled ? 'AKTİF' : 'PASİF'}
             </span>
           </div>
         </div>
       </header>
+
+      {/* Global Paused Banner */}
+      {!state.globalEnabled && (
+        <div className="flex items-center justify-between px-3.5 py-1.5 bg-rose-500/10 border-b border-rose-500/25 text-[11px] text-rose-300">
+          <span>
+            Extension is currently <strong>PAUSED</strong> — no HTTP headers, redirects, or body rules are being applied.
+          </span>
+          <button
+            onClick={() =>
+              updateState((prev) => ({ ...prev, globalEnabled: true }))
+            }
+            className="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-200 font-medium text-[10px]"
+          >
+            Enable Now
+          </button>
+        </div>
+      )}
 
       {/* Navigation Bar */}
       <nav className="flex items-center justify-between h-9 px-3.5 bg-[#101217] border-b border-zinc-800/80">

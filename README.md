@@ -1,3 +1,7 @@
+<div align="left">
+  <img src="public/icons/logo.svg" width="56" height="56" alt="ReqForge Logo" />
+</div>
+
 # ReqForge
 
 [![CI](https://github.com/xdloper/dev-browser-manipulations/actions/workflows/ci.yml/badge.svg)](https://github.com/xdloper/dev-browser-manipulations/actions/workflows/ci.yml)
