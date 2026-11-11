@@ -16,6 +16,19 @@ Works out of the box on **Chrome**, **Edge**, **Brave**, and **Firefox**.
 
 ---
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/inspector.png" width="49%" alt="ReqForce Outgoing Values & Traffic Inspector" />
+  <img src="docs/screenshots/headers.png" width="49%" alt="ReqForce HTTP Header Rules & Templates" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/routing.png" width="99%" alt="ReqForce CORS Bypass, Query Params, Request Blocker & Routing" />
+</p>
+
+---
+
 ## What ReqForce Shows You About Any Site
 
 When you open the **Inspector** tab on any website, ReqForce gives you an instant X-ray of its network activity:

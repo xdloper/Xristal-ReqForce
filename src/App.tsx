@@ -2303,8 +2303,8 @@ export default function App() {
                       ) : (
                         <>
                           {/* Sub-tabs + quick action bar inside detail pane */}
-                          <div className="flex items-center justify-between gap-1 px-2.5 h-8 bg-rf-raised border-b border-rf-border shrink-0">
-                            <div className="flex items-center gap-1">
+                          <div className="flex items-center justify-between gap-1 px-2 h-8 bg-rf-raised border-b border-rf-border shrink-0">
+                            <div className="flex items-center gap-0.5 min-w-0">
                               {(
                                 [
                                   {
@@ -2340,7 +2340,7 @@ export default function App() {
                                       setInspectorSection(sec.id);
                                     }
                                   }}
-                                  className={`h-6 px-2 rounded text-[10px] font-medium transition-colors ${
+                                  className={`h-6 px-1.5 rounded text-[10px] font-medium whitespace-nowrap shrink-0 transition-colors ${
                                     inspectorSection === sec.id
                                       ? 'bg-blue-600 text-white'
                                       : 'text-rf-4 hover:text-rf-2 hover:bg-rf-hover'
@@ -2352,12 +2352,12 @@ export default function App() {
                             </div>
 
                             {/* Quick 1-click actions */}
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1 shrink-0">
                               <button
                                 onClick={() =>
                                   createBodyRuleFromLog(activeLog, 'replace_response')
                                 }
-                                className="h-5 px-1.5 rounded bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[9px] font-medium"
+                                className="h-5 px-1.5 rounded bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-[9px] font-medium whitespace-nowrap shrink-0"
                               >
                                 + {t.inspectorMockThisResponse}
                               </button>
@@ -2370,7 +2370,7 @@ export default function App() {
                                   setActiveTab('routing');
                                   showToast(`Blocked ${activeLog.pathname || shortUrl(activeLog.url)}`);
                                 }}
-                                className="h-5 px-1.5 rounded bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-[9px] font-medium"
+                                className="h-5 px-1.5 rounded bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-[9px] font-medium whitespace-nowrap shrink-0"
                               >
                                 🚫 {t.inspectorBlockEndpoint}
                               </button>
