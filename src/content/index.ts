@@ -1,30 +1,23 @@
-// Self-contained content script (no shared imports so Rollup emits a pure classic script)
+// Self-contained ISOLATED world bridge (no DOM <script> tag injection -> zero CSP / Unsafe URL errors)
 const extApi: typeof chrome =
   (globalThis as unknown as { browser?: typeof chrome }).browser ||
   globalThis.chrome;
 
-function injectInterceptorScript() {
+function isContextValid(): boolean {
   try {
-    const container = document.head || document.documentElement;
-    if (!container) return;
-
-    const script = document.createElement('script');
-    script.src = extApi.runtime.getURL('scripts/injected.js');
-    script.dataset.devManipulator = 'true';
-    script.onload = () => {
-      script.remove();
-      sendRulesToInjectedScript();
-    };
-    container.prepend(script);
+    return Boolean(extApi?.runtime?.id);
   } catch {
-    // Ignore restricted pages
+    return false;
   }
 }
 
 function sendRulesToInjectedScript() {
-  extApi.runtime
-    .sendMessage({ type: 'GET_STATE_FOR_TAB' })
-    .then((response) => {
+  if (!isContextValid()) return;
+  try {
+    extApi.runtime.sendMessage({ type: 'GET_STATE_FOR_TAB' }, (response) => {
+      if (extApi.runtime.lastError) {
+        return;
+      }
       if (response?.state) {
         window.postMessage(
           {
@@ -35,43 +28,54 @@ function sendRulesToInjectedScript() {
           '*'
         );
       }
-    })
-    .catch(() => {});
+    });
+  } catch {
+    // Ignore invalidated context when extension reloads
+  }
 }
 
-// Run injection immediately at document_start
-injectInterceptorScript();
+// Push initial rules at document_start
+sendRulesToInjectedScript();
 
-// Listen for state updates from background script
-extApi.runtime.onMessage.addListener((message) => {
-  if (message?.type === 'STATE_UPDATED' && message.state) {
-    window.postMessage(
-      {
-        source: 'DEV_MANIPULATOR_CONTENT',
-        type: 'UPDATE_RULES',
-        state: message.state,
-      },
-      '*'
-    );
-  }
-});
+// Relay live rule updates from background worker to MAIN world
+if (isContextValid()) {
+  extApi.runtime.onMessage.addListener((message) => {
+    if (message?.type === 'STATE_UPDATED' && message.state) {
+      window.postMessage(
+        {
+          source: 'DEV_MANIPULATOR_CONTENT',
+          type: 'UPDATE_RULES',
+          state: message.state,
+        },
+        '*'
+      );
+    }
+  });
+}
 
-// Listen for intercept logs emitted by injected script in MAIN world
+// Relay intercept logs and readiness handshake from MAIN world
 window.addEventListener('message', (event) => {
   if (event.source !== window) return;
   const data = event.data;
   if (!data || data.source !== 'DEV_MANIPULATOR_INJECTED') return;
 
-  if (data.type === 'LOG_INTERCEPT' && data.entry) {
-    extApi.runtime
-      .sendMessage({
-        type: 'ADD_INTERCEPT_LOG',
-        entry: data.entry,
-      })
-      .catch(() => {});
-  }
+  if (!isContextValid()) return;
 
   if (data.type === 'INJECTED_READY') {
     sendRulesToInjectedScript();
+  } else if (data.type === 'LOG_INTERCEPT' && data.entry) {
+    try {
+      extApi.runtime.sendMessage(
+        {
+          type: 'ADD_INTERCEPT_LOG',
+          entry: data.entry,
+        },
+        () => {
+          void extApi.runtime.lastError;
+        }
+      );
+    } catch {
+      // Ignore
+    }
   }
 });
