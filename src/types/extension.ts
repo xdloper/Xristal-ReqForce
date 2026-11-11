@@ -80,12 +80,15 @@ export interface InterceptLogEntry {
 }
 
 export type LocalePreference = 'system' | 'en' | 'tr';
+export type ThemePreference = 'system' | 'light' | 'dark';
 
 export interface ExtensionState {
   globalEnabled: boolean;
   trafficMonitorEnabled: boolean;
   /** `system` follows browser/OS language (tr → Turkish, else English). Default: system. */
   locale: LocalePreference;
+  /** `system` follows OS color scheme. Default: system. */
+  theme: ThemePreference;
   activeProfileId: string;
   profiles: Profile[];
   logs: InterceptLogEntry[];

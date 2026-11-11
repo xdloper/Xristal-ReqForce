@@ -128,6 +128,7 @@ export const INITIAL_STATE: ExtensionState = {
   globalEnabled: true,
   trafficMonitorEnabled: true,
   locale: 'system',
+  theme: 'system',
   activeProfileId: 'default-dev',
   profiles: DEFAULT_PROFILES,
   logs: [],
@@ -144,6 +145,7 @@ export async function loadExtensionState(): Promise<ExtensionState> {
         trafficMonitorEnabled:
           data.devManipulatorState.trafficMonitorEnabled ?? true,
         locale: data.devManipulatorState.locale ?? 'system',
+        theme: data.devManipulatorState.theme ?? 'system',
       };
 
       // Safety migration: disable globally-scoped sample header that broke cookies/auth on real sites

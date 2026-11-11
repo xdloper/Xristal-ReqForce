@@ -11,11 +11,13 @@ import {
   FolderGit2,
   Globe,
   Layers,
-  Languages,
+  Moon,
   Plus,
   RotateCw,
   Search,
+  Settings,
   SlidersHorizontal,
+  Sun,
   Terminal,
   Trash2,
   Upload,
@@ -31,9 +33,14 @@ import {
   Profile,
   RedirectCorsRule,
   TelepresenceConfig,
+  ThemePreference,
 } from './types/extension';
 import { XristalLogo } from './components/XristalLogo';
 import { fill, getMessages, Messages, resolveLocale } from './i18n/messages';
+import {
+  applyThemeToDocument,
+  resolveTheme,
+} from './utils/theme';
 import {
   extApi,
   INITIAL_STATE,
@@ -41,7 +48,15 @@ import {
   saveExtensionState,
 } from './utils/browser';
 
-type TabType = 'headers' | 'body' | 'routing' | 'logs';
+type TabType = 'headers' | 'body' | 'routing' | 'logs' | 'settings';
+
+function getAppVersion(): string {
+  try {
+    return extApi?.runtime?.getManifest?.()?.version || '—';
+  } catch {
+    return '—';
+  }
+}
 
 const HEADER_TEMPLATES: Array<{
   labelKey: keyof Messages;
@@ -79,7 +94,7 @@ function Switch({
         onChange(!checked);
       }}
       className={`relative inline-flex items-center rounded-full transition-colors duration-150 focus:outline-none shrink-0 ${dims} ${
-        checked ? 'bg-blue-600' : 'bg-zinc-700/80 hover:bg-zinc-600'
+        checked ? 'bg-blue-600' : 'bg-rf-strong/80 hover:bg-rf-strong'
       }`}
     >
       <span
@@ -109,10 +124,27 @@ export default function App() {
     () => resolveLocale(state.locale),
     [state.locale]
   );
+  const resolvedTheme = useMemo(
+    () => resolveTheme(state.theme),
+    [state.theme]
+  );
+  const appVersion = useMemo(() => getAppVersion(), []);
 
   useEffect(() => {
     document.documentElement.lang = resolvedLocale;
   }, [resolvedLocale]);
+
+  useEffect(() => {
+    applyThemeToDocument(resolvedTheme);
+  }, [resolvedTheme]);
+
+  useEffect(() => {
+    if (state.theme !== 'system') return;
+    const mq = window.matchMedia('(prefers-color-scheme: light)');
+    const onChange = () => applyThemeToDocument(resolveTheme('system'));
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [state.theme]);
 
   useEffect(() => {
     loadExtensionState().then((loaded) => {
@@ -157,6 +189,10 @@ export default function App() {
 
   const setLocale = (locale: LocalePreference) => {
     updateState((prev) => ({ ...prev, locale }));
+  };
+
+  const setTheme = (theme: ThemePreference) => {
+    updateState((prev) => ({ ...prev, theme }));
   };
 
   const activeProfile: Profile =
@@ -482,6 +518,7 @@ export default function App() {
             ...INITIAL_STATE,
             ...parsed,
             locale: parsed.locale ?? state.locale ?? 'system',
+            theme: parsed.theme ?? state.theme ?? 'system',
           }));
           showToast(t.toastImportedConfig);
         }
@@ -533,9 +570,9 @@ export default function App() {
   });
 
   return (
-    <div className="flex flex-col h-[560px] bg-[#0d0f12] text-zinc-200 select-none">
+    <div className="flex flex-col h-[560px] bg-rf-base text-rf-2 select-none">
       {/* Top Application Header */}
-      <header className="flex items-center justify-between h-12 px-3.5 bg-[#12151a] border-b border-zinc-800/80">
+      <header className="flex items-center justify-between h-12 px-3.5 bg-rf-raised border-b border-rf-border/80">
         {/* Left: Our Official Logo, Brand & Workspace */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2.5">
@@ -544,14 +581,14 @@ export default function App() {
               disabled={!state.globalEnabled}
             />
             <div className="leading-tight">
-              <div className="font-semibold text-[13px] tracking-tight text-zinc-100">
+              <div className="font-semibold text-[13px] tracking-tight text-rf-1">
                 ReqForge
               </div>
-              <div className="text-[9px] text-zinc-500 font-medium">by Xristal</div>
+              <div className="text-[9px] text-rf-5 font-medium">by Xristal</div>
             </div>
           </div>
 
-          <div className="h-4 w-[1px] bg-zinc-800" />
+          <div className="h-4 w-[1px] bg-rf-hover" />
 
           {addingProfile ? (
             <div className="flex items-center gap-1">
@@ -562,7 +599,7 @@ export default function App() {
                 onKeyDown={(e) => e.key === 'Enter' && createProfile()}
                 placeholder={t.workspaceNamePlaceholder}
                 autoFocus
-                className="h-6 px-2 text-[11px] rounded bg-zinc-900 border border-zinc-700 text-zinc-100 focus:outline-none focus:border-blue-500 w-32"
+                className="h-6 px-2 text-[11px] rounded bg-rf-input border border-rf-border-strong text-rf-1 focus:outline-none focus:border-blue-500 w-32"
               />
               <button
                 onClick={createProfile}
@@ -572,15 +609,15 @@ export default function App() {
               </button>
               <button
                 onClick={() => setAddingProfile(false)}
-                className="h-6 px-1.5 text-[11px] text-zinc-500 hover:text-zinc-300"
+                className="h-6 px-1.5 text-[11px] text-rf-5 hover:text-rf-3"
               >
                 ✕
               </button>
             </div>
           ) : (
             <div className="flex items-center gap-1">
-              <div className="flex items-center gap-1.5 h-7 px-2 rounded-md bg-zinc-900/90 border border-zinc-800 hover:border-zinc-700 transition-colors">
-                <Layers className="w-3 h-3 text-zinc-400" />
+              <div className="flex items-center gap-1.5 h-7 px-2 rounded-md bg-rf-input/90 border border-rf-border hover:border-rf-border-strong transition-colors">
+                <Layers className="w-3 h-3 text-rf-4" />
                 <select
                   value={activeProfile.id}
                   onChange={(e) =>
@@ -589,10 +626,10 @@ export default function App() {
                       activeProfileId: e.target.value,
                     }))
                   }
-                  className="bg-transparent text-[11px] font-medium text-zinc-200 focus:outline-none cursor-pointer pr-1"
+                  className="bg-transparent text-[11px] font-medium text-rf-2 focus:outline-none cursor-pointer pr-1"
                 >
                   {state.profiles.map((p) => (
-                    <option key={p.id} value={p.id} className="bg-zinc-900 text-zinc-100">
+                    <option key={p.id} value={p.id} className="bg-rf-input text-rf-1">
                       {p.name}
                     </option>
                   ))}
@@ -601,7 +638,7 @@ export default function App() {
               <button
                 onClick={() => setAddingProfile(true)}
                 title={t.newWorkspace}
-                className="h-7 w-7 rounded-md flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/80 transition-colors"
+                className="h-7 w-7 rounded-md flex items-center justify-center text-rf-4 hover:text-rf-1 hover:bg-rf-hover/80 transition-colors"
               >
                 <Plus className="w-3.5 h-3.5" />
               </button>
@@ -609,7 +646,7 @@ export default function App() {
                 <button
                   onClick={deleteCurrentProfile}
                   title={t.deleteWorkspace}
-                  className="h-7 w-7 rounded-md flex items-center justify-center text-zinc-500 hover:text-red-400 hover:bg-zinc-800/80 transition-colors"
+                  className="h-7 w-7 rounded-md flex items-center justify-center text-rf-5 hover:text-red-400 hover:bg-rf-hover/80 transition-colors"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -618,75 +655,19 @@ export default function App() {
           )}
         </div>
 
-        {/* Right: Language, cURL Import, Reload, Export/Import & Master Toggle */}
+        {/* Right: cURL + Master Toggle — language/theme live under Settings */}
         <div className="flex items-center gap-1.5">
-          <div
-            className="flex items-center gap-1 h-7 px-1.5 rounded-md bg-zinc-900 border border-zinc-800"
-            title={t.language}
-          >
-            <Languages className="w-3 h-3 text-zinc-500 shrink-0" />
-            <select
-              value={state.locale || 'system'}
-              onChange={(e) => setLocale(e.target.value as LocalePreference)}
-              className="bg-transparent text-[10px] font-semibold text-zinc-300 focus:outline-none cursor-pointer pr-0.5 max-w-[72px]"
-            >
-              <option value="system" className="bg-zinc-900">
-                {t.languageSystem}
-                {state.locale === 'system' || !state.locale
-                  ? ` (${resolvedLocale.toUpperCase()})`
-                  : ''}
-              </option>
-              <option value="en" className="bg-zinc-900">
-                {t.languageEn}
-              </option>
-              <option value="tr" className="bg-zinc-900">
-                {t.languageTr}
-              </option>
-            </select>
-          </div>
-
           <button
             onClick={() => setShowCurlModal(true)}
             title={t.importCurlTitle}
-            className="h-7 px-2.5 rounded-md flex items-center gap-1.5 text-[11px] font-medium text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 transition-colors"
+            className="h-7 px-2.5 rounded-md flex items-center gap-1.5 text-[11px] font-medium text-rf-3 hover:text-rf-1 bg-rf-input hover:bg-rf-hover border border-rf-border transition-colors"
           >
             <Terminal className="w-3 h-3 text-blue-400" />
             <span>{t.importCurl}</span>
           </button>
 
-          <button
-            onClick={reloadTab}
-            title={t.reloadTabTitle}
-            className="h-7 px-2 rounded-md flex items-center gap-1 text-[11px] font-medium text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 transition-colors"
-          >
-            <RotateCw className="w-3 h-3" />
-          </button>
+          <div className="h-4 w-[1px] bg-rf-hover mx-0.5" />
 
-          <div className="flex items-center rounded-md bg-zinc-900 border border-zinc-800 p-0.5">
-            <button
-              onClick={handleExport}
-              title={t.exportJson}
-              className="h-6 w-6 rounded flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"
-            >
-              <Download className="w-3.5 h-3.5" />
-            </button>
-            <label
-              title={t.importJson}
-              className="h-6 w-6 rounded flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 cursor-pointer"
-            >
-              <Upload className="w-3.5 h-3.5" />
-              <input
-                type="file"
-                accept=".json"
-                onChange={handleImport}
-                className="hidden"
-              />
-            </label>
-          </div>
-
-          <div className="h-4 w-[1px] bg-zinc-800 mx-0.5" />
-
-          {/* Prominent Active / Passive Master Switch */}
           <div
             onClick={() =>
               updateState((prev) => ({
@@ -746,7 +727,7 @@ export default function App() {
         )}
 
       {/* Navigation Bar */}
-      <nav className="flex items-center justify-between h-9 px-3.5 bg-[#101217] border-b border-zinc-800/80">
+      <nav className="flex items-center justify-between h-9 px-3.5 bg-rf-sunken border-b border-rf-border/80">
         <div className="flex items-center gap-1 h-full">
           {(
             [
@@ -774,6 +755,12 @@ export default function App() {
                 icon: Activity,
                 count: state.logs.length,
               },
+              {
+                id: 'settings' as const,
+                label: t.tabSettings,
+                icon: Settings,
+                count: 0,
+              },
             ]
           ).map((tab) => {
             const Icon = tab.icon;
@@ -789,8 +776,8 @@ export default function App() {
                 }}
                 className={`h-full px-3 flex items-center gap-1.5 border-b-2 text-[11px] font-medium transition-colors ${
                   isActive
-                    ? 'border-blue-500 text-zinc-100 bg-zinc-900/40'
-                    : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                    ? 'border-blue-500 text-rf-1 bg-rf-input/40'
+                    : 'border-transparent text-rf-4 hover:text-rf-2'
                 }`}
               >
                 <Icon className="w-3.5 h-3.5" />
@@ -800,7 +787,7 @@ export default function App() {
                     className={`px-1.5 py-0.2 rounded text-[10px] font-mono-code ${
                       isActive
                         ? 'bg-blue-500/20 text-blue-300'
-                        : 'bg-zinc-800 text-zinc-400'
+                        : 'bg-rf-hover text-rf-4'
                     }`}
                   >
                     {tab.count}
@@ -816,19 +803,19 @@ export default function App() {
             <button
               onClick={scopeHeadersToCurrentDomain}
               title={`${t.pinDomainTitle} (${activeDomainPattern})`}
-              className="h-6 px-2 rounded flex items-center gap-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-[10px] text-zinc-300"
+              className="h-6 px-2 rounded flex items-center gap-1 bg-rf-input hover:bg-rf-hover border border-rf-border text-[10px] text-rf-3"
             >
               <Crosshair className="w-3 h-3 text-emerald-400" />
               <span>{t.pinDomain}</span>
             </button>
             <div className="relative flex items-center">
-              <Search className="w-3 h-3 text-zinc-500 absolute left-2 pointer-events-none" />
+              <Search className="w-3 h-3 text-rf-5 absolute left-2 pointer-events-none" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t.filterPlaceholder}
-                className="h-6 pl-6 pr-2 w-32 rounded bg-zinc-900 border border-zinc-800 text-[11px] text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-600"
+                className="h-6 pl-6 pr-2 w-32 rounded bg-rf-input border border-rf-border text-[11px] text-rf-2 placeholder-rf-5 focus:outline-none focus:border-rf-border-strong"
               />
             </div>
           </div>
@@ -842,7 +829,7 @@ export default function App() {
         {/* =================================================================== */}
         {activeTab === 'headers' && (
           <div className="flex flex-col h-full">
-            <div className="flex items-center justify-between px-3.5 py-2 bg-[#12151a]/60 border-b border-zinc-800/70">
+            <div className="flex items-center justify-between px-3.5 py-2 bg-rf-raised/60 border-b border-rf-border/70">
               <div className="flex items-center gap-1 flex-wrap">
                 {HEADER_TEMPLATES.map((tpl) => (
                   <button
@@ -850,7 +837,7 @@ export default function App() {
                     onClick={() =>
                       addHeaderRule(tpl.name, tpl.value, tpl.target, tpl.op)
                     }
-                    className="h-6 px-2 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 hover:border-zinc-700 text-[11px] transition-colors"
+                    className="h-6 px-2 rounded bg-rf-input hover:bg-rf-hover text-rf-3 border border-rf-border hover:border-rf-border-strong text-[11px] transition-colors"
                   >
                     + {t[tpl.labelKey]}
                   </button>
@@ -860,7 +847,7 @@ export default function App() {
                 {activeProfile.headerRules.length > 1 && (
                   <button
                     onClick={() => toggleAllHeaders(activeHeaders === 0)}
-                    className="h-6 px-2 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-[10px] text-zinc-400 hover:text-zinc-200"
+                    className="h-6 px-2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-[10px] text-rf-4 hover:text-rf-2"
                   >
                     {activeHeaders === 0 ? t.enableAll : t.disableAll}
                   </button>
@@ -875,23 +862,23 @@ export default function App() {
               </div>
             </div>
 
-            <div className="grid grid-cols-12 gap-2 px-3.5 py-1.5 bg-[#101217] border-b border-zinc-800/80 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            <div className="grid grid-cols-12 gap-2 px-3.5 py-1.5 bg-rf-sunken border-b border-rf-border/80 text-[10px] font-semibold uppercase tracking-wider text-rf-5">
               <div className="col-span-3">{t.colTargetAction}</div>
               <div className="col-span-3">{t.colHeaderName}</div>
               <div className="col-span-4">{t.colHeaderValue}</div>
               <div className="col-span-2">{t.colUrlPattern}</div>
             </div>
 
-            <div className="divide-y divide-zinc-800/50">
+            <div className="divide-y divide-rf-border/50">
               {filteredHeaders.length === 0 ? (
-                <div className="py-16 text-center text-zinc-500 text-xs">
+                <div className="py-16 text-center text-rf-5 text-xs">
                   {t.noHeaderRules}
                 </div>
               ) : (
                 filteredHeaders.map((rule) => (
                   <div
                     key={rule.id}
-                    className={`grid grid-cols-12 gap-2 px-3.5 py-2 items-center transition-colors hover:bg-zinc-900/30 ${
+                    className={`grid grid-cols-12 gap-2 px-3.5 py-2 items-center transition-colors hover:bg-rf-input/30 ${
                       !rule.enabled ? 'opacity-50' : ''
                     }`}
                   >
@@ -913,10 +900,10 @@ export default function App() {
                             : 'bg-purple-500/10 border-purple-500/30 text-purple-300'
                         }`}
                       >
-                        <option value="request" className="bg-zinc-900 text-zinc-200">
+                        <option value="request" className="bg-rf-input text-rf-2">
                           REQ
                         </option>
-                        <option value="response" className="bg-zinc-900 text-zinc-200">
+                        <option value="response" className="bg-rf-input text-rf-2">
                           RES
                         </option>
                       </select>
@@ -928,7 +915,7 @@ export default function App() {
                             operation: e.target.value as HeaderOperation,
                           })
                         }
-                        className="h-6 px-1.5 rounded bg-zinc-900 border border-zinc-800 text-[11px] text-zinc-300 focus:outline-none focus:border-zinc-600"
+                        className="h-6 px-1.5 rounded bg-rf-input border border-rf-border text-[11px] text-rf-3 focus:outline-none focus:border-rf-border-strong"
                       >
                         <option value="set">{t.set}</option>
                         <option value="append">{t.append}</option>
@@ -944,7 +931,7 @@ export default function App() {
                           updateHeaderRule(rule.id, { name: e.target.value })
                         }
                         placeholder={t.headerNamePlaceholder}
-                        className="w-full h-6 px-2 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500"
+                        className="w-full h-6 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-rf-1 placeholder-rf-6 focus:outline-none focus:border-blue-500"
                       />
                     </div>
 
@@ -961,7 +948,7 @@ export default function App() {
                             ? t.headerWillBeStripped
                             : t.headerValuePlaceholder
                         }
-                        className="w-full h-6 px-2 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-emerald-300 placeholder-zinc-600 disabled:opacity-40 focus:outline-none focus:border-blue-500"
+                        className="w-full h-6 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-emerald-300 placeholder-rf-6 disabled:opacity-40 focus:outline-none focus:border-blue-500"
                       />
                     </div>
 
@@ -973,19 +960,19 @@ export default function App() {
                           updateHeaderRule(rule.id, { urlFilter: e.target.value })
                         }
                         placeholder="*"
-                        className="w-full h-6 px-1.5 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-zinc-400 focus:outline-none focus:border-blue-500"
+                        className="w-full h-6 px-1.5 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-rf-4 focus:outline-none focus:border-blue-500"
                       />
                       <button
                         onClick={() => duplicateHeaderRule(rule)}
                         title={t.duplicateRule}
-                        className="h-6 w-5 rounded shrink-0 flex items-center justify-center text-zinc-500 hover:text-zinc-200"
+                        className="h-6 w-5 rounded shrink-0 flex items-center justify-center text-rf-5 hover:text-rf-2"
                       >
                         <CopyPlus className="w-3 h-3" />
                       </button>
                       <button
                         onClick={() => deleteHeaderRule(rule.id)}
                         title={t.deleteRule}
-                        className="h-6 w-5 rounded shrink-0 flex items-center justify-center text-zinc-500 hover:text-red-400"
+                        className="h-6 w-5 rounded shrink-0 flex items-center justify-center text-rf-5 hover:text-red-400"
                       >
                         <Trash2 className="w-3 h-3" />
                       </button>
@@ -1002,9 +989,9 @@ export default function App() {
         {/* =================================================================== */}
         {activeTab === 'body' && (
           <div className="grid grid-cols-12 h-[454px]">
-            <div className="col-span-4 border-r border-zinc-800/80 flex flex-col bg-[#101217]">
-              <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800/80">
-                <span className="text-[11px] font-medium text-zinc-400">
+            <div className="col-span-4 border-r border-rf-border/80 flex flex-col bg-rf-sunken">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-rf-border/80">
+                <span className="text-[11px] font-medium text-rf-4">
                   {t.bodyRules} ({activeProfile.bodyRules.length})
                 </span>
                 <button
@@ -1015,9 +1002,9 @@ export default function App() {
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto divide-y divide-zinc-800/50">
+              <div className="flex-1 overflow-y-auto divide-y divide-rf-border/50">
                 {activeProfile.bodyRules.length === 0 ? (
-                  <div className="p-6 text-center text-zinc-500 text-xs">
+                  <div className="p-6 text-center text-rf-5 text-xs">
                     {t.noBodyRules}
                   </div>
                 ) : (
@@ -1029,8 +1016,8 @@ export default function App() {
                         onClick={() => setSelectedBodyId(rule.id)}
                         className={`flex items-center justify-between px-3 py-2.5 cursor-pointer transition-colors ${
                           isSelected
-                            ? 'bg-blue-600/10 border-l-2 border-l-blue-500 text-zinc-100'
-                            : 'text-zinc-400 hover:bg-zinc-900/60'
+                            ? 'bg-blue-600/10 border-l-2 border-l-blue-500 text-rf-1'
+                            : 'text-rf-4 hover:bg-rf-input/60'
                         }`}
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
@@ -1041,14 +1028,14 @@ export default function App() {
                             }
                           />
                           <div className="truncate">
-                            <div className="text-[11px] font-medium text-zinc-200 truncate">
+                            <div className="text-[11px] font-medium text-rf-2 truncate">
                               {rule.name || rule.urlPattern}
                             </div>
                             <div className="flex items-center gap-1.5 mt-0.5">
-                              <span className="text-[10px] font-mono-code px-1 rounded bg-zinc-800 text-blue-300">
+                              <span className="text-[10px] font-mono-code px-1 rounded bg-rf-hover text-blue-300">
                                 {rule.method}
                               </span>
-                              <span className="text-[10px] font-mono-code text-zinc-500 truncate">
+                              <span className="text-[10px] font-mono-code text-rf-5 truncate">
                                 {rule.urlPattern}
                               </span>
                             </div>
@@ -1059,7 +1046,7 @@ export default function App() {
                             e.stopPropagation();
                             deleteBodyRule(rule.id);
                           }}
-                          className="text-zinc-500 hover:text-red-400 p-1 rounded hover:bg-zinc-800"
+                          className="text-rf-5 hover:text-red-400 p-1 rounded hover:bg-rf-hover"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -1070,14 +1057,14 @@ export default function App() {
               </div>
             </div>
 
-            <div className="col-span-8 p-3.5 flex flex-col h-full bg-[#0d0f12]">
+            <div className="col-span-8 p-3.5 flex flex-col h-full bg-rf-base">
               {(() => {
                 const selected =
                   activeProfile.bodyRules.find((r) => r.id === selectedBodyId) ||
                   activeProfile.bodyRules[0];
                 if (!selected) {
                   return (
-                    <div className="m-auto text-zinc-500 text-xs">
+                    <div className="m-auto text-rf-5 text-xs">
                       {t.selectBodyRule}
                     </div>
                   );
@@ -1086,7 +1073,7 @@ export default function App() {
                   <div className="flex flex-col h-full gap-3">
                     <div className="grid grid-cols-12 gap-2.5">
                       <div className="col-span-5">
-                        <label className="block text-[10px] font-medium text-zinc-400 mb-1">
+                        <label className="block text-[10px] font-medium text-rf-4 mb-1">
                           {t.ruleName}
                         </label>
                         <input
@@ -1096,12 +1083,12 @@ export default function App() {
                             updateBodyRule(selected.id, { name: e.target.value })
                           }
                           placeholder={t.ruleNamePlaceholder}
-                          className="w-full h-7 px-2.5 rounded bg-zinc-900 border border-zinc-800 text-xs text-zinc-100 focus:outline-none focus:border-blue-500"
+                          className="w-full h-7 px-2.5 rounded bg-rf-input border border-rf-border text-xs text-rf-1 focus:outline-none focus:border-blue-500"
                         />
                       </div>
 
                       <div className="col-span-7">
-                        <label className="block text-[10px] font-medium text-zinc-400 mb-1">
+                        <label className="block text-[10px] font-medium text-rf-4 mb-1">
                           {t.mutationStrategy}
                         </label>
                         <select
@@ -1111,7 +1098,7 @@ export default function App() {
                               mode: e.target.value as BodyRuleMode,
                             })
                           }
-                          className="w-full h-7 px-2 rounded bg-zinc-900 border border-zinc-800 text-xs text-blue-300 font-medium focus:outline-none focus:border-blue-500"
+                          className="w-full h-7 px-2 rounded bg-rf-input border border-rf-border text-xs text-blue-300 font-medium focus:outline-none focus:border-blue-500"
                         >
                           <option value="merge_response_json">
                             {t.modeMergeResponse}
@@ -1131,7 +1118,7 @@ export default function App() {
 
                     <div className="grid grid-cols-12 gap-2.5">
                       <div className="col-span-2">
-                        <label className="block text-[10px] font-medium text-zinc-400 mb-1">
+                        <label className="block text-[10px] font-medium text-rf-4 mb-1">
                           {t.method}
                         </label>
                         <select
@@ -1141,7 +1128,7 @@ export default function App() {
                               method: e.target.value as BodyRule['method'],
                             })
                           }
-                          className="w-full h-7 px-1.5 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-zinc-200"
+                          className="w-full h-7 px-1.5 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-rf-2"
                         >
                           <option value="ALL">ALL</option>
                           <option value="GET">GET</option>
@@ -1153,7 +1140,7 @@ export default function App() {
                       </div>
 
                       <div className="col-span-6">
-                        <label className="block text-[10px] font-medium text-zinc-400 mb-1">
+                        <label className="block text-[10px] font-medium text-rf-4 mb-1">
                           {t.urlPatternLabel}
                         </label>
                         <input
@@ -1165,12 +1152,12 @@ export default function App() {
                             })
                           }
                           placeholder="/api/v1/features"
-                          className="w-full h-7 px-2.5 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-zinc-100 focus:outline-none focus:border-blue-500"
+                          className="w-full h-7 px-2.5 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-rf-1 focus:outline-none focus:border-blue-500"
                         />
                       </div>
 
                       <div className="col-span-2">
-                        <label className="block text-[10px] font-medium text-zinc-400 mb-1">
+                        <label className="block text-[10px] font-medium text-rf-4 mb-1">
                           {t.httpStatus}
                         </label>
                         <input
@@ -1181,12 +1168,12 @@ export default function App() {
                               statusCode: Number(e.target.value) || 200,
                             })
                           }
-                          className="w-full h-7 px-2 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-emerald-300"
+                          className="w-full h-7 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-emerald-300"
                         />
                       </div>
 
                       <div className="col-span-2">
-                        <label className="block text-[10px] font-medium text-zinc-400 mb-1">
+                        <label className="block text-[10px] font-medium text-rf-4 mb-1">
                           {t.delayMs}
                         </label>
                         <input
@@ -1197,14 +1184,14 @@ export default function App() {
                               delayMs: Math.max(0, Number(e.target.value) || 0),
                             })
                           }
-                          className="w-full h-7 px-2 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-amber-300"
+                          className="w-full h-7 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-amber-300"
                         />
                       </div>
                     </div>
 
                     <div className="flex-1 flex flex-col">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] font-medium text-zinc-400">
+                        <span className="text-[10px] font-medium text-rf-4">
                           {t.jsonPayload}
                         </span>
                         <button
@@ -1235,7 +1222,7 @@ export default function App() {
                           })
                         }
                         spellCheck={false}
-                        className="flex-1 w-full p-3 rounded-md bg-[#08090b] border border-zinc-800 font-mono-code text-[11px] text-emerald-300 resize-none focus:outline-none focus:border-blue-500 leading-relaxed"
+                        className="flex-1 w-full p-3 rounded-md bg-rf-deep border border-rf-border font-mono-code text-[11px] text-emerald-300 resize-none focus:outline-none focus:border-blue-500 leading-relaxed"
                       />
                     </div>
                   </div>
@@ -1250,11 +1237,11 @@ export default function App() {
         {/* =================================================================== */}
         {activeTab === 'routing' && (
           <div className="p-3.5 space-y-4">
-            <div className="rounded-lg bg-[#12151a] border border-zinc-800/80 overflow-hidden">
-              <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-zinc-800">
+            <div className="rounded-lg bg-rf-raised border border-rf-border/80 overflow-hidden">
+              <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-rf-border">
                 <div className="flex items-center gap-2">
                   <Globe className="w-3.5 h-3.5 text-blue-400" />
-                  <span className="text-xs font-semibold text-zinc-100">
+                  <span className="text-xs font-semibold text-rf-1">
                     {t.corsSectionTitle}
                   </span>
                 </div>
@@ -1280,9 +1267,9 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="divide-y divide-zinc-800/60">
+              <div className="divide-y divide-rf-border/60">
                 {activeProfile.redirectCorsRules.length === 0 ? (
-                  <div className="py-8 text-center text-zinc-500 text-xs">
+                  <div className="py-8 text-center text-rf-5 text-xs">
                     {t.noRoutingRules}
                   </div>
                 ) : (
@@ -1331,7 +1318,7 @@ export default function App() {
                             })
                           }
                           placeholder={t.sourceUrlPlaceholder}
-                          className="w-full h-6 px-2 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-zinc-100"
+                          className="w-full h-6 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-rf-1"
                         />
                       </div>
 
@@ -1346,7 +1333,7 @@ export default function App() {
                               })
                             }
                             placeholder="http://localhost:8080/\1"
-                            className="w-full h-6 px-2 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-emerald-300"
+                            className="w-full h-6 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-emerald-300"
                           />
                         </div>
                       )}
@@ -1362,7 +1349,7 @@ export default function App() {
                               })
                             }
                             placeholder="param_key"
-                            className="w-full h-6 px-2 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-amber-300"
+                            className="w-full h-6 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-amber-300"
                           />
                           <input
                             type="text"
@@ -1373,7 +1360,7 @@ export default function App() {
                               })
                             }
                             placeholder="value"
-                            className="w-full h-6 px-2 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-emerald-300"
+                            className="w-full h-6 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-emerald-300"
                           />
                         </div>
                       )}
@@ -1381,7 +1368,7 @@ export default function App() {
                       <div className="col-span-1 flex justify-end">
                         <button
                           onClick={() => deleteRedirectCorsRule(rule.id)}
-                          className="text-zinc-500 hover:text-red-400 p-1"
+                          className="text-rf-5 hover:text-red-400 p-1"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -1392,15 +1379,15 @@ export default function App() {
               </div>
             </div>
 
-            <div className="rounded-lg bg-[#12151a] border border-zinc-800/80 p-3.5 space-y-3">
+            <div className="rounded-lg bg-rf-raised border border-rf-border/80 p-3.5 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <FolderGit2 className="w-3.5 h-3.5 text-indigo-400" />
                   <div>
-                    <span className="text-xs font-semibold text-zinc-100">
+                    <span className="text-xs font-semibold text-rf-1">
                       {t.clusterTitle}
                     </span>
-                    <p className="text-[11px] text-zinc-500">
+                    <p className="text-[11px] text-rf-5">
                       {t.clusterHint}
                     </p>
                   </div>
@@ -1413,9 +1400,9 @@ export default function App() {
               </div>
 
               {activeProfile.telepresence.enabled && (
-                <div className="grid grid-cols-2 gap-3 pt-2 border-t border-zinc-800/80">
+                <div className="grid grid-cols-2 gap-3 pt-2 border-t border-rf-border/80">
                   <div>
-                    <label className="block text-[10px] font-medium text-zinc-400 mb-1">
+                    <label className="block text-[10px] font-medium text-rf-4 mb-1">
                       {t.interceptId}
                     </label>
                     <div className="flex gap-1">
@@ -1424,7 +1411,7 @@ export default function App() {
                         value={activeProfile.telepresence.interceptId}
                         onChange={(e) => handleInterceptPaste(e.target.value)}
                         placeholder={t.interceptPlaceholder}
-                        className="flex-1 h-7 px-2 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-zinc-100 focus:outline-none focus:border-blue-500"
+                        className="flex-1 h-7 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-rf-1 focus:outline-none focus:border-blue-500"
                       />
                       <button
                         onClick={() => {
@@ -1434,7 +1421,7 @@ export default function App() {
                           setCopiedId(true);
                           setTimeout(() => setCopiedId(false), 1200);
                         }}
-                        className="h-7 px-2 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400"
+                        className="h-7 px-2 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-rf-4"
                         title={t.copyId}
                       >
                         {copiedId ? (
@@ -1447,7 +1434,7 @@ export default function App() {
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-medium text-zinc-400 mb-1">
+                    <label className="block text-[10px] font-medium text-rf-4 mb-1">
                       {t.otelBaggage}
                     </label>
                     <input
@@ -1457,13 +1444,13 @@ export default function App() {
                         updateContextRouting({ baggageHeader: e.target.value })
                       }
                       placeholder="key1=val1,key2=val2"
-                      className="w-full h-7 px-2 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-zinc-200 focus:outline-none focus:border-blue-500"
+                      className="w-full h-7 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-rf-2 focus:outline-none focus:border-blue-500"
                     />
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-[10px] font-medium text-zinc-400 mb-1">
+                      <label className="block text-[10px] font-medium text-rf-4 mb-1">
                         {t.customContextHeader}
                       </label>
                       <input
@@ -1475,11 +1462,11 @@ export default function App() {
                           })
                         }
                         placeholder="x-request-env"
-                        className="w-full h-7 px-2 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-zinc-200"
+                        className="w-full h-7 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-rf-2"
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-medium text-zinc-400 mb-1">
+                      <label className="block text-[10px] font-medium text-rf-4 mb-1">
                         {t.value}
                       </label>
                       <input
@@ -1491,13 +1478,13 @@ export default function App() {
                           })
                         }
                         placeholder="local-dev"
-                        className="w-full h-7 px-2 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-zinc-200"
+                        className="w-full h-7 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-rf-2"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-medium text-zinc-400 mb-1">
+                    <label className="block text-[10px] font-medium text-rf-4 mb-1">
                       {t.targetHostScope}
                     </label>
                     <input
@@ -1509,12 +1496,12 @@ export default function App() {
                         })
                       }
                       placeholder="* or *://*.example.com/*"
-                      className="w-full h-7 px-2 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-zinc-200"
+                      className="w-full h-7 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-rf-2"
                     />
                   </div>
 
                   <div className="col-span-2 flex items-center gap-6 pt-1">
-                    <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                    <label className="flex items-center gap-2 text-xs text-rf-3 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={activeProfile.telepresence.propagateBaggage}
@@ -1528,7 +1515,7 @@ export default function App() {
                       <span>{t.syncInterceptBaggage}</span>
                     </label>
 
-                    <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                    <label className="flex items-center gap-2 text-xs text-rf-3 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={activeProfile.telepresence.envoyForceTrace}
@@ -1553,12 +1540,12 @@ export default function App() {
         {/* =================================================================== */}
         {activeTab === 'logs' && (
           <div className="flex flex-col h-full">
-            <div className="flex items-center justify-between px-3.5 py-2 bg-[#12151a] border-b border-zinc-800 text-[11px]">
+            <div className="flex items-center justify-between px-3.5 py-2 bg-rf-raised border-b border-rf-border text-[11px]">
               <div className="flex items-center gap-3">
-                <span className="text-zinc-400">
+                <span className="text-rf-4">
                   {t.liveTraffic} ({state.logs.length})
                 </span>
-                <label className="flex items-center gap-1.5 text-zinc-300 cursor-pointer">
+                <label className="flex items-center gap-1.5 text-rf-3 cursor-pointer">
                   <Switch
                     checked={state.trafficMonitorEnabled !== false}
                     onChange={(val) =>
@@ -1574,33 +1561,33 @@ export default function App() {
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => loadExtensionState().then(setState)}
-                  className="h-6 px-2.5 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300"
+                  className="h-6 px-2.5 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-rf-3"
                 >
                   {t.refresh}
                 </button>
                 <button
                   onClick={() => updateState((prev) => ({ ...prev, logs: [] }))}
-                  className="h-6 px-2.5 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-red-400"
+                  className="h-6 px-2.5 rounded bg-rf-input hover:bg-rf-hover border border-rf-border text-rf-4 hover:text-red-400"
                 >
                   {t.clear}
                 </button>
               </div>
             </div>
 
-            <div className="px-3.5 py-1.5 bg-[#0d0f12] border-b border-zinc-800/60 text-[10px] text-zinc-500">
+            <div className="px-3.5 py-1.5 bg-rf-base border-b border-rf-border/60 text-[10px] text-rf-5">
               {t.inspectorHint}
             </div>
 
-            <div className="divide-y divide-zinc-800/50 font-mono-code text-[11px] overflow-y-auto flex-1">
+            <div className="divide-y divide-rf-border/50 font-mono-code text-[11px] overflow-y-auto flex-1">
               {state.logs.length === 0 ? (
-                <div className="py-16 text-center text-zinc-500 font-sans text-xs">
+                <div className="py-16 text-center text-rf-5 font-sans text-xs">
                   {t.noTraffic}
                 </div>
               ) : (
                 state.logs.map((log) => (
                   <div
                     key={log.id}
-                    className={`px-3.5 py-2 hover:bg-zinc-900/40 ${
+                    className={`px-3.5 py-2 hover:bg-rf-input/40 ${
                       log.mutated ? 'bg-amber-500/5 border-l-2 border-l-amber-500/50' : ''
                     }`}
                   >
@@ -1610,11 +1597,11 @@ export default function App() {
                           {log.method}
                         </span>
                       </div>
-                      <div className="col-span-1 text-[10px] text-zinc-400">
+                      <div className="col-span-1 text-[10px] text-rf-4">
                         {log.status ?? '—'}
                       </div>
                       <div
-                        className="col-span-6 truncate text-zinc-200"
+                        className="col-span-6 truncate text-rf-2"
                         title={log.url}
                       >
                         {log.url}
@@ -1622,15 +1609,15 @@ export default function App() {
                       <div className="col-span-2 truncate text-emerald-400 text-[10px]">
                         {log.details}
                       </div>
-                      <div className="col-span-2 text-right text-zinc-500 text-[10px]">
+                      <div className="col-span-2 text-right text-rf-5 text-[10px]">
                         {new Date(log.timestamp).toLocaleTimeString()}
                       </div>
                     </div>
                     {(log.credentials || log.requestHeaders || log.ruleName !== '—') && (
-                      <div className="mt-1 pl-0 text-[10px] text-zinc-500 flex flex-wrap gap-x-3 gap-y-0.5">
+                      <div className="mt-1 pl-0 text-[10px] text-rf-5 flex flex-wrap gap-x-3 gap-y-0.5">
                         {log.credentials && (
                           <span>
-                            credentials: <code className="text-zinc-300">{log.credentials}</code>
+                            credentials: <code className="text-rf-3">{log.credentials}</code>
                           </span>
                         )}
                         {log.ruleName && log.ruleName !== '—' && (
@@ -1642,7 +1629,7 @@ export default function App() {
                           Object.keys(log.requestHeaders).length > 0 && (
                             <span className="truncate max-w-full">
                               headers:{' '}
-                              <code className="text-zinc-400">
+                              <code className="text-rf-4">
                                 {Object.entries(log.requestHeaders)
                                   .map(([k, v]) => `${k}=${v}`)
                                   .join(' · ')}
@@ -1657,46 +1644,175 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* =================================================================== */}
+        {/* TAB 5: SETTINGS — Language, Theme, Version, Structure               */}
+        {/* =================================================================== */}
+        {activeTab === 'settings' && (
+          <div className="p-3.5 space-y-3 overflow-y-auto h-full">
+            {/* 1. Language & Theme */}
+            <section className="rounded-lg bg-rf-raised border border-rf-border/80 p-3.5 space-y-3">
+              <div>
+                <h2 className="text-xs font-semibold text-rf-1">
+                  {t.settingsAppearance}
+                </h2>
+                <p className="text-[11px] text-rf-5 mt-0.5">
+                  {t.settingsAppearanceHint}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-medium text-rf-4 mb-1">
+                    {t.language}
+                  </label>
+                  <select
+                    value={state.locale || 'system'}
+                    onChange={(e) =>
+                      setLocale(e.target.value as LocalePreference)
+                    }
+                    className="w-full h-8 px-2 rounded bg-rf-input border border-rf-border text-[11px] text-rf-2 focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="system">
+                      {t.languageSystem} ({resolvedLocale.toUpperCase()})
+                    </option>
+                    <option value="en">{t.languageEn}</option>
+                    <option value="tr">{t.languageTr}</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-medium text-rf-4 mb-1">
+                    {t.theme}
+                  </label>
+                  <div className="flex items-center gap-1 h-8 p-0.5 rounded bg-rf-input border border-rf-border">
+                    {(
+                      [
+                        { id: 'system' as const, label: t.themeSystem },
+                        { id: 'light' as const, label: t.themeLight, icon: Sun },
+                        { id: 'dark' as const, label: t.themeDark, icon: Moon },
+                      ]
+                    ).map((opt) => {
+                      const Icon = opt.icon;
+                      const active = (state.theme || 'system') === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setTheme(opt.id)}
+                          className={`flex-1 h-full px-1.5 rounded flex items-center justify-center gap-1 text-[10px] font-medium transition-colors ${
+                            active
+                              ? 'bg-blue-600 text-white'
+                              : 'text-rf-4 hover:text-rf-2 hover:bg-rf-hover'
+                          }`}
+                        >
+                          {Icon ? <Icon className="w-3 h-3" /> : null}
+                          <span>{opt.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* 2. Version / About */}
+            <section className="rounded-lg bg-rf-raised border border-rf-border/80 p-3.5">
+              <h2 className="text-xs font-semibold text-rf-1 mb-2">
+                {t.settingsAbout}
+              </h2>
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-rf-4">{t.settingsVersion}</span>
+                <code className="font-mono-code text-emerald-400">v{appVersion}</code>
+              </div>
+              <div className="flex items-center justify-between text-[11px] mt-1.5">
+                <span className="text-rf-4">{t.settingsAuthor}</span>
+                <span className="text-rf-5">MIT</span>
+              </div>
+            </section>
+
+            {/* 3. Structural / data tools */}
+            <section className="rounded-lg bg-rf-raised border border-rf-border/80 p-3.5 space-y-3">
+              <div>
+                <h2 className="text-xs font-semibold text-rf-1">
+                  {t.settingsStructure}
+                </h2>
+                <p className="text-[11px] text-rf-5 mt-0.5">
+                  {t.settingsStructureHint}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={handleExport}
+                  className="h-8 px-3 rounded-md flex items-center gap-1.5 bg-rf-input hover:bg-rf-hover border border-rf-border text-[11px] text-rf-2 font-medium"
+                >
+                  <Download className="w-3.5 h-3.5 text-blue-400" />
+                  {t.exportJson}
+                </button>
+                <label className="h-8 px-3 rounded-md flex items-center gap-1.5 bg-rf-input hover:bg-rf-hover border border-rf-border text-[11px] text-rf-2 font-medium cursor-pointer">
+                  <Upload className="w-3.5 h-3.5 text-emerald-400" />
+                  {t.importJson}
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={handleImport}
+                    className="hidden"
+                  />
+                </label>
+                <button
+                  onClick={reloadTab}
+                  className="h-8 px-3 rounded-md flex items-center gap-1.5 bg-rf-input hover:bg-rf-hover border border-rf-border text-[11px] text-rf-2 font-medium"
+                >
+                  <RotateCw className="w-3.5 h-3.5" />
+                  {t.reloadTabTitle}
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
       </main>
 
       {/* Footer Status Bar */}
-      <footer className="h-6 px-3.5 bg-[#101217] border-t border-zinc-800/80 flex items-center justify-between text-[10px] text-zinc-500">
+      <footer className="h-6 px-3.5 bg-rf-sunken border-t border-rf-border/80 flex items-center justify-between text-[10px] text-rf-5">
         <div className="flex items-center gap-2">
           <span>
-            {t.tabScope}: <code className="text-zinc-300 font-mono-code">{activeDomainPattern}</code>
+            {t.tabScope}: <code className="text-rf-3 font-mono-code">{activeDomainPattern}</code>
           </span>
         </div>
-        <span>ReqForge by Xristal</span>
+        <span>
+          {t.settingsAuthor} · v{appVersion}
+        </span>
       </footer>
 
       {/* cURL Import Modal */}
       {showCurlModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-6 z-50">
-          <div className="w-full max-w-lg rounded-lg bg-[#12151a] border border-zinc-700 p-4 space-y-3 shadow-2xl">
+          <div className="w-full max-w-lg rounded-lg bg-rf-raised border border-rf-border-strong p-4 space-y-3 shadow-2xl">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-zinc-100">
+              <span className="text-xs font-semibold text-rf-1">
                 {t.curlModalTitle}
               </span>
               <button
                 onClick={() => setShowCurlModal(false)}
-                className="text-zinc-400 hover:text-white text-xs"
+                className="text-rf-4 hover:text-rf-1 text-xs"
               >
                 ✕
               </button>
             </div>
-            <p className="text-[11px] text-zinc-400">{t.curlModalHint}</p>
+            <p className="text-[11px] text-rf-4">{t.curlModalHint}</p>
             <textarea
               rows={6}
               value={curlInput}
               onChange={(e) => setCurlInput(e.target.value)}
               placeholder={`curl 'https://api.example.com/v1/orders' \\\n  -H 'Authorization: Bearer eyJ...' \\\n  -H 'X-Tenant-ID: acme' \\\n  --data-raw '{"dryRun":true}'`}
               spellCheck={false}
-              className="w-full p-2.5 rounded bg-[#08090b] border border-zinc-800 font-mono-code text-[11px] text-emerald-300 focus:outline-none focus:border-blue-500"
+              className="w-full p-2.5 rounded bg-rf-deep border border-rf-border font-mono-code text-[11px] text-emerald-300 focus:outline-none focus:border-blue-500"
             />
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setShowCurlModal(false)}
-                className="h-7 px-3 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300"
+                className="h-7 px-3 rounded bg-rf-hover hover:bg-rf-strong text-xs text-rf-3"
               >
                 {t.cancel}
               </button>
@@ -1713,7 +1829,7 @@ export default function App() {
 
       {/* Subtle Toast */}
       {toast && (
-        <div className="fixed bottom-8 right-3.5 px-3 py-1.5 rounded-md bg-zinc-800 border border-zinc-700 text-zinc-100 text-[11px] font-medium shadow-lg z-50">
+        <div className="fixed bottom-8 right-3.5 px-3 py-1.5 rounded-md bg-rf-hover border border-rf-border-strong text-rf-1 text-[11px] font-medium shadow-lg z-50">
           {toast}
         </div>
       )}

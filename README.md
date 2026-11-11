@@ -13,9 +13,9 @@
 
 ---
 
-## Capability Matrix
+## Features
 
-| Capability | Execution Layer | Details |
+| Feature | Layer | Details |
 | :--- | :--- | :--- |
 | **HTTP Header Manipulation** | Network (`declarativeNetRequest`) + Page | `Set`, `Append`, or `Remove` any request or response header (`Authorization`, `X-API-Key`, `Cache-Control`, `Content-Security-Policy`, `X-Forwarded-For`). |
 | **JSON Shallow Merge** | Page (`MAIN` world `fetch` / `XHR`) | Patch individual keys inside incoming JSON responses or outgoing JSON requests while keeping the rest of the server payload intact. |
@@ -24,7 +24,18 @@
 | **CORS Bypass & `307` Redirects** | Network (`declarativeNetRequest`) | Inject `Access-Control-Allow-*` response headers and route production/staging URLs to `http://localhost:<port>` via wildcard or regex capture groups. |
 | **Query String Mutation** | Network (`queryTransform`) | Automatically append or overwrite URL query parameters (e.g., `?debug=1`, `?version=canary`) across matching requests. |
 | **Mesh & Cluster Context** | Network + Page | Optional propagation for W3C OpenTelemetry `baggage`, `x-envoy-force-trace`, multi-tenant headers, and `x-telepresence-intercept-id`. |
-| **Workspaces & Domain Pinning** | `storage.local` | Maintain isolated profiles (`Local`, `Staging`, `QA`), pin rules to the active tab's hostname in one click, and share setups via JSON export/import. |
+| **Workspaces & Domain Pinning** | `storage.local` | Isolated profiles (`Local`, `Staging`, `QA`), one-click **Pin Domain** to the active tab hostname, JSON export/import. |
+| **Live Traffic Inspector** | Page → Popup | Monitor outgoing `fetch` / `XHR` (method, URL, status, credentials mode, visible headers). Mutated rows are highlighted so you can disable the offending rule. Toggle **Monitor all fetch/XHR** on/off. |
+| **Safe Pass-Through** | Page interceptor | When no rule matches, original `fetch` / `XHR` is left untouched — cookies, credentials, and Bearer sessions stay intact. Cookie / Authorization are never injected from the page world. |
+| **ACTIVE / PAUSED Master Toggle** | Popup + All layers | One switch pauses every header, redirect, body, and context rule instantly; paused banner with **Enable Now**. |
+| **Language (EN / TR / Auto)** | Settings | Follows OS/browser language by default (`tr*` → Turkish, otherwise English). Force **EN** or **TR** anytime; preference is persisted. |
+| **Theme (Light / Dark / Auto)** | Settings | Follows OS color scheme by default. Force **Light** or **Dark**; tokens drive the whole popup surface. |
+| **Settings Hub** | Popup | Language & Theme first, then Version / About, then Workspace & Data (export, import, reload tab). |
+| **Header Templates & Bulk Actions** | Popup Workspace | Quick templates (Bearer, API Key, No Cache, Spoof IP, Tenant ID, Strip CSP), duplicate rules, Enable All / Disable All. |
+| **Wildcard Safety Warning** | Popup UI | Warns when auth-sensitive headers (`Authorization`, `Cookie`, `x-debug-mode`) run on URL filter `*` — prefer Pin Domain. |
+| **MAIN-World Injection** | Content scripts | Native MV3 `"world": "MAIN"` interceptor (no `chrome-extension://` script tags). YouTube / Google Video / reCAPTCHA frames excluded to avoid CSP / Unsafe URL noise. |
+| **Zero Telemetry** | Entire extension | 100% local — no analytics, remote scripts, or external servers. Rules stay in `storage.local`. |
+| **Multi-Browser MV3 Builds** | `dist/` | Ready-to-load bundles for **Chrome**, **Edge/Brave**, and **Firefox** from every SemVer release. |
 
 ---
 

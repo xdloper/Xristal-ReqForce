@@ -9,6 +9,7 @@ const FALLBACK_STATE: ExtensionState = {
   globalEnabled: true,
   trafficMonitorEnabled: true,
   locale: 'system',
+  theme: 'system',
   activeProfileId: 'default-dev',
   profiles: [
     {

@@ -2,13 +2,56 @@
 @tailwind components;
 @tailwind utilities;
 
+:root,
+html[data-theme='dark'] {
+  color-scheme: dark;
+  --rf-base: #0d0f12;
+  --rf-raised: #12151a;
+  --rf-sunken: #101217;
+  --rf-deep: #08090b;
+  --rf-input: #18181b;
+  --rf-hover: #27272a;
+  --rf-strong: #3f3f46;
+  --rf-border: #27272a;
+  --rf-border-strong: #3f3f46;
+  --rf-1: #f4f4f5;
+  --rf-2: #e4e4e7;
+  --rf-3: #d4d4d8;
+  --rf-4: #a1a1aa;
+  --rf-5: #71717a;
+  --rf-6: #52525b;
+  --rf-scrollbar: #27272a;
+  --rf-scrollbar-hover: #3f3f46;
+}
+
+html[data-theme='light'] {
+  color-scheme: light;
+  --rf-base: #f4f4f5;
+  --rf-raised: #ffffff;
+  --rf-sunken: #ececee;
+  --rf-deep: #ffffff;
+  --rf-input: #ffffff;
+  --rf-hover: #e4e4e7;
+  --rf-strong: #d4d4d8;
+  --rf-border: #d4d4d8;
+  --rf-border-strong: #a1a1aa;
+  --rf-1: #18181b;
+  --rf-2: #27272a;
+  --rf-3: #3f3f46;
+  --rf-4: #52525b;
+  --rf-5: #71717a;
+  --rf-6: #a1a1aa;
+  --rf-scrollbar: #d4d4d8;
+  --rf-scrollbar-hover: #a1a1aa;
+}
+
 html,
 body,
 #root {
   margin: 0;
   padding: 0;
-  background-color: #0d0f12;
-  color: #e4e4e7;
+  background-color: var(--rf-base);
+  color: var(--rf-2);
   font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
   font-size: 12px;
   -webkit-font-smoothing: antialiased;
@@ -35,9 +78,9 @@ html.is-fluid-window #root {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #27272a;
+  background: var(--rf-scrollbar);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
+  background: var(--rf-scrollbar-hover);
 }

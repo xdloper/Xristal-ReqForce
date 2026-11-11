@@ -15,6 +15,7 @@ export type Messages = {
   tabBody: string;
   tabRouting: string;
   tabInspector: string;
+  tabSettings: string;
   importCurl: string;
   importCurlTitle: string;
   reloadTabTitle: string;
@@ -89,6 +90,17 @@ export type Messages = {
   languageSystem: string;
   languageEn: string;
   languageTr: string;
+  theme: string;
+  themeSystem: string;
+  themeLight: string;
+  themeDark: string;
+  settingsAppearance: string;
+  settingsAppearanceHint: string;
+  settingsAbout: string;
+  settingsVersion: string;
+  settingsAuthor: string;
+  settingsStructure: string;
+  settingsStructureHint: string;
   toastOpenHttpTab: string;
   toastScoped: string;
   toastImported: string;
@@ -131,6 +143,7 @@ export const en: Messages = {
   tabBody: 'Body & Mocking',
   tabRouting: 'CORS, Query & Routing',
   tabInspector: 'Inspector',
+  tabSettings: 'Settings',
   importCurl: 'Import cURL',
   importCurlTitle: 'Import headers & body from a cURL command',
   reloadTabTitle: 'Reload Active Tab',
@@ -209,6 +222,17 @@ export const en: Messages = {
   languageSystem: 'Auto',
   languageEn: 'EN',
   languageTr: 'TR',
+  theme: 'Theme',
+  themeSystem: 'Auto',
+  themeLight: 'Light',
+  themeDark: 'Dark',
+  settingsAppearance: 'Language & Theme',
+  settingsAppearanceHint: 'Follow the system by default, or lock English / Turkish and Light / Dark.',
+  settingsAbout: 'About',
+  settingsVersion: 'Version',
+  settingsAuthor: 'ReqForge by Xristal',
+  settingsStructure: 'Workspace & Data',
+  settingsStructureHint: 'Export / import rule JSON and reload the active tab.',
   toastOpenHttpTab: 'Open an HTTP/HTTPS tab first',
   toastScoped: 'Scoped rules to {pattern}',
   toastImported: 'Imported {n} headers{body}',
@@ -251,6 +275,7 @@ export const tr: Messages = {
   tabBody: 'Body & Mock',
   tabRouting: 'CORS, Query & Routing',
   tabInspector: 'Inspector',
+  tabSettings: 'Ayarlar',
   importCurl: 'cURL İçe Aktar',
   importCurlTitle: 'cURL komutundan header ve body içe aktar',
   reloadTabTitle: 'Aktif Sekmeyi Yenile',
@@ -329,6 +354,17 @@ export const tr: Messages = {
   languageSystem: 'Otomatik',
   languageEn: 'EN',
   languageTr: 'TR',
+  theme: 'Tema',
+  themeSystem: 'Otomatik',
+  themeLight: 'Açık',
+  themeDark: 'Koyu',
+  settingsAppearance: 'Dil & Tema',
+  settingsAppearanceHint: 'Varsayılan olarak sistemi takip eder; dil ve temayı elle sabitleyebilirsin.',
+  settingsAbout: 'Hakkında',
+  settingsVersion: 'Sürüm',
+  settingsAuthor: 'ReqForge by Xristal',
+  settingsStructure: 'Workspace & Veri',
+  settingsStructureHint: 'Kural JSON dışa/içe aktar ve aktif sekmeyi yenile.',
   toastOpenHttpTab: 'Önce bir HTTP/HTTPS sekmesi aç',
   toastScoped: 'Kurallar {pattern} ile sınırlandı',
   toastImported: '{n} header{body} içe aktarıldı',
