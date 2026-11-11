@@ -1,15 +1,16 @@
 <div align="left">
-  <img src="public/icons/logo.svg" width="56" height="56" alt="ReqForge Logo" />
+  <img src="public/icons/logo.svg" width="60" height="60" alt="Xristal - ReqForce Logo" />
 </div>
 
-# ReqForge
+# Xristal - ReqForce
 
-[![CI](https://github.com/xdloper/dev-browser-manipulations/actions/workflows/ci.yml/badge.svg)](https://github.com/xdloper/dev-browser-manipulations/actions/workflows/ci.yml)
-[![Release](https://github.com/xdloper/dev-browser-manipulations/actions/workflows/release.yml/badge.svg)](https://github.com/xdloper/dev-browser-manipulations/actions/workflows/release.yml)
-[![Version](https://img.shields.io/github/v/release/xdloper/dev-browser-manipulations)](https://github.com/xdloper/dev-browser-manipulations/releases)
+[![CI](https://github.com/xdloper/Xristal-ReqForce/actions/workflows/ci.yml/badge.svg)](https://github.com/xdloper/Xristal-ReqForce/actions/workflows/ci.yml)
+[![Release](https://github.com/xdloper/Xristal-ReqForce/actions/workflows/release.yml/badge.svg)](https://github.com/xdloper/Xristal-ReqForce/actions/workflows/release.yml)
+[![Version](https://img.shields.io/github/v/release/xdloper/Xristal-ReqForce)](https://github.com/xdloper/Xristal-ReqForce/releases)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-4E4FEB.svg)](https://github.com/xdloper/Xristal-ReqForce/pulls)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
-**ReqForge** is an open-source, zero-telemetry Manifest V3 browser extension by **Xristal** for intercepting and mutating HTTP headers, overriding `fetch` / `XMLHttpRequest` payloads, mocking REST endpoints, injecting URL query parameters, bypassing CORS, and propagating distributed tracing / Kubernetes context headers across **Chrome, Edge, Brave, and Firefox**.
+**ReqForce (ReqForge)** is a zero-telemetry Manifest V3 browser extension by **Xristal** for intercepting and mutating HTTP headers, overriding `fetch` / `XMLHttpRequest` payloads, mocking REST endpoints, inspecting page-to-endpoint token carriers, injecting URL query parameters, bypassing CORS, and propagating distributed tracing / Kubernetes context headers across **Chrome, Edge, Brave, and Firefox**.
 
 ---
 
@@ -20,12 +21,12 @@
 | **HTTP Header Manipulation** | Network (`declarativeNetRequest`) + Page | `Set`, `Append`, or `Remove` any request or response header (`Authorization`, `X-API-Key`, `Cache-Control`, `Content-Security-Policy`, `X-Forwarded-For`). |
 | **JSON Shallow Merge** | Page (`MAIN` world `fetch` / `XHR`) | Patch individual keys inside incoming JSON responses or outgoing JSON requests while keeping the rest of the server payload intact. |
 | **Endpoint Mocking & Chaos** | Page (`MAIN` world `fetch` / `XHR`) | Short-circuit endpoints with custom payloads, custom HTTP status codes (`200`, `401`, `429`, `503`), and simulated latency (`ms`). |
+| **Live Traffic & Token Carrier Inspector** | Page → Popup | Inspect **Source Page → Target Endpoint** flow, raw request/response headers, query params, request body, and response preview. Automatically detects where tokens & credentials travel (**HEADER**, **BODY**, **QUERY**, **COOKIE**) with filter pills and 1-click rule creation. |
 | **cURL Importer** | Popup Workspace | Paste raw **Copy as cURL** output from browser DevTools to extract `-H` headers and `--data-raw` payloads into active rules. |
 | **CORS Bypass & `307` Redirects** | Network (`declarativeNetRequest`) | Inject `Access-Control-Allow-*` response headers and route production/staging URLs to `http://localhost:<port>` via wildcard or regex capture groups. |
 | **Query String Mutation** | Network (`queryTransform`) | Automatically append or overwrite URL query parameters (e.g., `?debug=1`, `?version=canary`) across matching requests. |
 | **Mesh & Cluster Context** | Network + Page | Optional propagation for W3C OpenTelemetry `baggage`, `x-envoy-force-trace`, multi-tenant headers, and `x-telepresence-intercept-id`. |
 | **Workspaces & Domain Pinning** | `storage.local` | Isolated profiles (`Local`, `Staging`, `QA`), one-click **Pin Domain** to the active tab hostname, JSON export/import. |
-| **Live Traffic & Token Carrier Inspector** | Page → Popup | Inspect **Source Page → Target Endpoint** flow, headers, query params, raw request body, and response preview. Automatically detects how tokens/auth are carried (**HEADER**, **BODY**, **QUERY**, **COOKIE**) with filter pills and 1-click rule creation. |
 | **Safe Pass-Through** | Page interceptor | When no rule matches, original `fetch` / `XHR` is left untouched — cookies, credentials, and Bearer sessions stay intact. Cookie / Authorization are never injected from the page world. |
 | **ACTIVE / PAUSED Master Toggle** | Popup + All layers | One switch pauses every header, redirect, body, and context rule instantly; paused banner with **Enable Now**. |
 | **Language (EN / TR / Auto)** | Settings | Follows OS/browser language by default (`tr*` → Turkish, otherwise English). Force **EN** or **TR** anytime; preference is persisted. |
@@ -44,23 +45,21 @@
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ Popup Workspace (React + TypeScript + Tailwind)                         │
-│  • Workspaces, cURL Parser, Rule Editor, Domain Pinning, Traffic Log    │
+│  • Workspaces, cURL Parser, Rule Editor, Domain Pinning, Inspector      │
 └───────────────────────────────┬─────────────────────────────────────────┘
                                 │ chrome.storage.local + SYNC_STATE
         ┌───────────────────────┴───────────────────────┐
         ▼                                               ▼
 ┌───────────────────────────────────┐   ┌─────────────────────────────────┐
 │ Service Worker (background.js)    │   │ Content Bridge (content.js)     │
-│  • declarativeNetRequest engine   │   │  • Injects scripts/injected.js  │
-│  • Wire-level Req/Res Headers     │   │    at document_start            │
-│  • CORS Override & 307 Redirects  │   │  • Relays live state & logs     │
-│  • URL Query Param Transforms     │   └───────────────┬─────────────────┘
-└───────────────────────────────────┘                   ▼
-                                        ┌─────────────────────────────────┐
-                                        │ Page Interceptor (injected.js)  │
+│  • declarativeNetRequest engine   │   │  • Relays live state & traffic  │
+│  • Wire-level Req/Res Headers     │   └───────────────┬─────────────────┘
+│  • CORS Override & 307 Redirects  │                   ▼
+│  • URL Query Param Transforms     │   ┌─────────────────────────────────┐
+└───────────────────────────────────┘   │ MAIN-World Interceptor          │
                                         │  • Wraps window.fetch & XHR     │
+                                        │  • Token Carrier Detection      │
                                         │  • Shallow JSON Merge & Mocks   │
-                                        │  • Status Code & Delay Override │
                                         └─────────────────────────────────┘
 ```
 
@@ -101,7 +100,15 @@ Verify how frontend components handle `429 Too Many Requests`, `503 Service Unav
   }
   ```
 
-### 3. Hybrid Localhost Routing + CORS Unblock
+### 3. Page → Endpoint Traffic & Token Carrier Analysis
+
+Understand how an application authenticates and communicates across services:
+
+1. Open the **Inspector** tab and keep **Monitor all fetch/XHR** enabled.
+2. Filter by **Has Auth/Token**, **Header Token**, **Body Token**, **Query Token**, or **Cookie**.
+3. Click any captured request to inspect its **Source Page → Target Endpoint** flow, raw headers, query parameters, JSON payload, response preview, and turn any header or body directly into an active rule with **+ Rule**.
+
+### 4. Hybrid Localhost Routing + CORS Unblock
 
 Keep using a hosted staging frontend while routing a single API service to your local machine:
 
@@ -109,15 +116,15 @@ Keep using a hosted staging frontend while routing a single API service to your 
 - **Redirect Destination:** `http://localhost:8080/v2/orders/\1`
 - **Companion Rule:** Enable `+ CORS Bypass` on `*` to prevent cross-origin preflight failures between the staging origin and `localhost`.
 
-### 4. Instant cURL Replay & Mutation
+### 5. Instant cURL Replay & Mutation
 
 1. Copy any request from Chrome/Firefox DevTools via **Copy → Copy as cURL**.
 2. Open **ReqForge** → **Import cURL** → paste the command.
 3. All `-H` request headers and `--data-raw` request bodies are parsed into editable, toggleable rules scoped to that host.
 
-### 5. Distributed Tracing & Kubernetes Service Mesh Routing
+### 6. Distributed Tracing & Kubernetes Service Mesh Routing
 
-When working against shared Kubernetes clusters (Envoy, Istio, OpenTelemetry, or Telepresence), enable **Cluster & Mesh Context Propagation** under **CORS, Query & Routing** to attach routing metadata (`baggage`, `x-envoy-force-trace`, `x-telepresence-intercept-id`) only to your browser's traffic.
+When working against shared Kubernetes clusters (Envoy, Istio, OpenTelemetry, or Telepresence), enable **Cluster & Mesh Context Propagation** under **Routing** to attach routing metadata (`baggage`, `x-envoy-force-trace`, `x-telepresence-intercept-id`) only to your browser's traffic.
 
 ---
 
@@ -148,7 +155,7 @@ dist/
 
 ## Installation
 
-Download a packaged `.zip` from [GitHub Releases](https://github.com/xdloper/dev-browser-manipulations/releases) or load directly from `dist/`:
+Download a packaged `.zip` from [GitHub Releases](https://github.com/xdloper/Xristal-ReqForce/releases) or load directly from `dist/`:
 
 - **Chrome / Brave:** Open `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select `dist/chrome`.
 - **Microsoft Edge:** Open `edge://extensions` → enable **Developer mode** → **Load unpacked** → select `dist/edge`.
@@ -156,11 +163,11 @@ Download a packaged `.zip` from [GitHub Releases](https://github.com/xdloper/dev
 
 ---
 
-## Development & Semantic Versioning
+## Development & Releases
 
 ```bash
-git clone https://github.com/xdloper/dev-browser-manipulations.git
-cd dev-browser-manipulations
+git clone https://github.com/xdloper/Xristal-ReqForce.git
+cd Xristal-ReqForce
 npm install
 
 # Build dist/chrome, dist/edge, and dist/firefox
@@ -173,10 +180,20 @@ npm run dev
 Releases follow [Semantic Versioning](https://semver.org/) and automatically synchronize `package.json`, `public/manifest.json`, `dist/*`, git commits, and git tags:
 
 ```bash
-npm run release:patch   # 1.3.0 -> 1.3.1
-npm run release:minor   # 1.3.0 -> 1.4.0
-npm run release:major   # 1.3.0 -> 2.0.0
+npm run release:patch
+npm run release:minor
+npm run release:major
 ```
+
+---
+
+## Contributing
+
+Bug reports, feature ideas, header/body templates, and pull requests are welcome:
+
+1. Fork the repository and create a branch (`git checkout -b feat/your-feature`).
+2. Make your changes under `src/` and run `npm run build` to verify TypeScript and bundle output across `dist/chrome`, `dist/edge`, and `dist/firefox`.
+3. Open a [Pull Request](https://github.com/xdloper/Xristal-ReqForce/pulls) or start an [Issue](https://github.com/xdloper/Xristal-ReqForce/issues) with reproduction steps or use cases.
 
 ---
 
