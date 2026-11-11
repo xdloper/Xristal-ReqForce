@@ -4,6 +4,8 @@ import {
   ArrowRightLeft,
   Check,
   Copy,
+  CopyPlus,
+  Crosshair,
   Download,
   FileCode2,
   FolderGit2,
@@ -13,6 +15,7 @@ import {
   RotateCw,
   Search,
   SlidersHorizontal,
+  Terminal,
   Trash2,
   Upload,
   Zap,
@@ -88,6 +91,9 @@ export default function App() {
   const [addingProfile, setAddingProfile] = useState(false);
   const [selectedBodyId, setSelectedBodyId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [activeDomainPattern, setActiveDomainPattern] = useState<string>('*');
+  const [showCurlModal, setShowCurlModal] = useState(false);
+  const [curlInput, setCurlInput] = useState('');
 
   useEffect(() => {
     loadExtensionState().then((loaded) => {
@@ -99,6 +105,22 @@ export default function App() {
         setSelectedBodyId(prof.bodyRules[0].id);
       }
     });
+
+    if (extApi?.tabs) {
+      extApi.tabs
+        .query({ active: true, currentWindow: true })
+        .then(([tab]) => {
+          if (tab?.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://'))) {
+            try {
+              const u = new URL(tab.url);
+              setActiveDomainPattern(`*://${u.hostname}/*`);
+            } catch {
+              // ignore
+            }
+          }
+        })
+        .catch(() => {});
+    }
   }, []);
 
   const showToast = (msg: string) => {
@@ -126,6 +148,95 @@ export default function App() {
     }));
   };
 
+  // Scope all enabled header rules in profile to current tab domain
+  const scopeHeadersToCurrentDomain = () => {
+    if (activeDomainPattern === '*') {
+      showToast('Open an HTTP/HTTPS tab first');
+      return;
+    }
+    updateActiveProfile((prof) => ({
+      ...prof,
+      headerRules: prof.headerRules.map((r) => ({
+        ...r,
+        urlFilter: activeDomainPattern,
+      })),
+    }));
+    showToast(`Scoped rules to ${activeDomainPattern}`);
+  };
+
+  // Parse cURL command into Header & Body rules
+  const handleImportCurl = () => {
+    const raw = curlInput.trim();
+    if (!raw) return;
+
+    const urlMatch = raw.match(/curl\s+(?:-[A-Za-z]+\s+\S+\s+)*['"]?(https?:\/\/[^\s'"]+)['"]?/i) ||
+      raw.match(/['"](https?:\/\/[^\s'"]+)['"]/i);
+    let urlFilter = '*';
+    let pathname = '/api/';
+    if (urlMatch?.[1]) {
+      try {
+        const parsedUrl = new URL(urlMatch[1]);
+        urlFilter = `*://${parsedUrl.hostname}/*`;
+        pathname = parsedUrl.pathname || '/';
+      } catch {
+        // fallback
+      }
+    }
+
+    const headerRegex = /(?:-H|--header)\s+['"]([^:'"]+):\s*([^'"]*)['"]/gi;
+    const importedHeaders: HeaderRule[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = headerRegex.exec(raw)) !== null) {
+      const hName = match[1].trim();
+      const hVal = match[2].trim();
+      // Skip noisy browser-internal headers unless user wants them
+      if (['sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform', 'accept-language'].includes(hName.toLowerCase())) {
+        continue;
+      }
+      importedHeaders.push({
+        id: `h-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        enabled: true,
+        name: hName,
+        value: hVal,
+        operation: 'set',
+        target: 'request',
+        urlFilter,
+      });
+    }
+
+    const dataMatch = raw.match(/(?:-d|--data|--data-raw|--data-binary)\s+['"]([\s\S]*?)['"](?:\s+-|\s*$)/i);
+    let importedBody: BodyRule | null = null;
+    if (dataMatch?.[1]) {
+      const methodMatch = raw.match(/(?:-X|--request)\s+['"]?([A-Z]+)['"]?/i);
+      const detectedMethod = (methodMatch?.[1]?.toUpperCase() || 'POST') as BodyRule['method'];
+      importedBody = {
+        id: `b-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        enabled: true,
+        name: `cURL ${pathname}`,
+        urlPattern: pathname,
+        method: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(detectedMethod)
+          ? detectedMethod
+          : 'POST',
+        mode: 'replace_request',
+        statusCode: 200,
+        delayMs: 0,
+        bodyContent: dataMatch[1],
+      };
+    }
+
+    updateActiveProfile((prof) => ({
+      ...prof,
+      headerRules: [...importedHeaders, ...prof.headerRules],
+      bodyRules: importedBody ? [importedBody, ...prof.bodyRules] : prof.bodyRules,
+    }));
+
+    setCurlInput('');
+    setShowCurlModal(false);
+    showToast(
+      `Imported ${importedHeaders.length} headers${importedBody ? ' + 1 body rule' : ''}`
+    );
+  };
+
   // Header Rules
   const addHeaderRule = (
     name = '',
@@ -145,6 +256,25 @@ export default function App() {
     updateActiveProfile((prof) => ({
       ...prof,
       headerRules: [newRule, ...prof.headerRules],
+    }));
+  };
+
+  const duplicateHeaderRule = (rule: HeaderRule) => {
+    const copy: HeaderRule = {
+      ...rule,
+      id: `h-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+    };
+    updateActiveProfile((prof) => ({
+      ...prof,
+      headerRules: [copy, ...prof.headerRules],
+    }));
+    showToast('Rule duplicated');
+  };
+
+  const toggleAllHeaders = (enable: boolean) => {
+    updateActiveProfile((prof) => ({
+      ...prof,
+      headerRules: prof.headerRules.map((r) => ({ ...r, enabled: enable })),
     }));
   };
 
@@ -198,16 +328,23 @@ export default function App() {
     }));
   };
 
-  // Redirect & CORS Rules
-  const addRedirectCorsRule = (type: 'redirect' | 'cors_bypass') => {
+  // Redirect, CORS & Query Param Rules
+  const addRedirectCorsRule = (type: 'redirect' | 'cors_bypass' | 'query_param') => {
     const newRule: RedirectCorsRule = {
       id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
       enabled: true,
-      name: type === 'cors_bypass' ? 'Global CORS Bypass' : 'Route to Localhost',
+      name:
+        type === 'cors_bypass'
+          ? 'Global CORS Bypass'
+          : type === 'query_param'
+          ? 'Query Parameter'
+          : 'Route to Localhost',
       type,
       sourceUrlFilter:
-        type === 'cors_bypass' ? '*' : '^https://api\\.example\\.com/(.*)',
+        type === 'redirect' ? '^https://api\\.example\\.com/(.*)' : activeDomainPattern,
       destinationUrl: type === 'redirect' ? 'http://localhost:8080/\\1' : '',
+      queryKey: type === 'query_param' ? 'debug' : '',
+      queryValue: type === 'query_param' ? '1' : '',
     };
     updateActiveProfile((prof) => ({
       ...prof,
@@ -231,7 +368,7 @@ export default function App() {
     }));
   };
 
-  // Context / Cluster Routing (Telepresence, Baggage, Envoy)
+  // Context / Cluster Routing
   const updateContextRouting = (patch: Partial<TelepresenceConfig>) => {
     updateActiveProfile((prof) => ({
       ...prof,
@@ -369,7 +506,7 @@ export default function App() {
     <div className="flex flex-col h-[560px] bg-[#0d0f12] text-zinc-200 select-none">
       {/* Top Application Header */}
       <header className="flex items-center justify-between h-11 px-3.5 bg-[#12151a] border-b border-zinc-800/80">
-        {/* Left: Brand & Global Status */}
+        {/* Left: Brand & Workspace */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <div
@@ -388,7 +525,6 @@ export default function App() {
 
           <div className="h-4 w-[1px] bg-zinc-800" />
 
-          {/* Workspace / Profile Selector */}
           {addingProfile ? (
             <div className="flex items-center gap-1">
               <input
@@ -454,15 +590,23 @@ export default function App() {
           )}
         </div>
 
-        {/* Right: Actions & Master Toggle */}
-        <div className="flex items-center gap-2">
+        {/* Right: cURL Import, Reload, Export/Import & Master Toggle */}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setShowCurlModal(true)}
+            title="Import headers & body from a cURL command"
+            className="h-7 px-2.5 rounded-md flex items-center gap-1.5 text-[11px] font-medium text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 transition-colors"
+          >
+            <Terminal className="w-3 h-3 text-blue-400" />
+            <span>Import cURL</span>
+          </button>
+
           <button
             onClick={reloadTab}
             title="Reload Active Tab"
-            className="h-7 px-2.5 rounded-md flex items-center gap-1.5 text-[11px] font-medium text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 transition-colors"
+            className="h-7 px-2 rounded-md flex items-center gap-1 text-[11px] font-medium text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 transition-colors"
           >
             <RotateCw className="w-3 h-3" />
-            <span>Reload Tab</span>
           </button>
 
           <div className="flex items-center rounded-md bg-zinc-900 border border-zinc-800 p-0.5">
@@ -486,8 +630,6 @@ export default function App() {
               />
             </label>
           </div>
-
-          <div className="h-4 w-[1px] bg-zinc-800 mx-0.5" />
 
           <div
             onClick={() =>
@@ -533,7 +675,7 @@ export default function App() {
               },
               {
                 id: 'routing',
-                label: 'CORS, Redirect & Context',
+                label: 'CORS, Query & Routing',
                 icon: ArrowRightLeft,
                 count: activeRouting,
               },
@@ -580,17 +722,26 @@ export default function App() {
           })}
         </div>
 
-        {/* Search Input for Headers tab */}
         {activeTab === 'headers' && (
-          <div className="relative flex items-center">
-            <Search className="w-3 h-3 text-zinc-500 absolute left-2 pointer-events-none" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Filter headers..."
-              className="h-6 pl-6 pr-2 w-40 rounded bg-zinc-900 border border-zinc-800 text-[11px] text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-600"
-            />
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={scopeHeadersToCurrentDomain}
+              title={`Scope rules to active tab (${activeDomainPattern})`}
+              className="h-6 px-2 rounded flex items-center gap-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-[10px] text-zinc-300"
+            >
+              <Crosshair className="w-3 h-3 text-emerald-400" />
+              <span>Pin Domain</span>
+            </button>
+            <div className="relative flex items-center">
+              <Search className="w-3 h-3 text-zinc-500 absolute left-2 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Filter..."
+                className="h-6 pl-6 pr-2 w-32 rounded bg-zinc-900 border border-zinc-800 text-[11px] text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-600"
+              />
+            </div>
           </div>
         )}
       </nav>
@@ -602,10 +753,8 @@ export default function App() {
         {/* =================================================================== */}
         {activeTab === 'headers' && (
           <div className="flex flex-col h-full">
-            {/* Quick Templates & Add Button */}
             <div className="flex items-center justify-between px-3.5 py-2 bg-[#12151a]/60 border-b border-zinc-800/70">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[11px] text-zinc-500 mr-0.5">Templates:</span>
+              <div className="flex items-center gap-1 flex-wrap">
                 {HEADER_TEMPLATES.map((tpl) => (
                   <button
                     key={tpl.label}
@@ -618,16 +767,25 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              <button
-                onClick={() => addHeaderRule()}
-                className="h-6 px-2.5 rounded flex items-center gap-1 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-medium shadow-sm shrink-0"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add Rule</span>
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {activeProfile.headerRules.length > 1 && (
+                  <button
+                    onClick={() => toggleAllHeaders(activeHeaders === 0)}
+                    className="h-6 px-2 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-[10px] text-zinc-400 hover:text-zinc-200"
+                  >
+                    {activeHeaders === 0 ? 'Enable All' : 'Disable All'}
+                  </button>
+                )}
+                <button
+                  onClick={() => addHeaderRule()}
+                  className="h-6 px-2.5 rounded flex items-center gap-1 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-medium shadow-sm"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Rule</span>
+                </button>
+              </div>
             </div>
 
-            {/* Column Headers */}
             <div className="grid grid-cols-12 gap-2 px-3.5 py-1.5 bg-[#101217] border-b border-zinc-800/80 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
               <div className="col-span-3">Target & Action</div>
               <div className="col-span-3">Header Name</div>
@@ -635,11 +793,10 @@ export default function App() {
               <div className="col-span-2">URL Pattern</div>
             </div>
 
-            {/* Rules List */}
             <div className="divide-y divide-zinc-800/50">
               {filteredHeaders.length === 0 ? (
                 <div className="py-16 text-center text-zinc-500 text-xs">
-                  No HTTP header rules match. Click &ldquo;Add Rule&rdquo; or choose a template above.
+                  No HTTP header rules match. Click &ldquo;Add Rule&rdquo;, &ldquo;Import cURL&rdquo;, or pick a template.
                 </div>
               ) : (
                 filteredHeaders.map((rule) => (
@@ -719,7 +876,7 @@ export default function App() {
                       />
                     </div>
 
-                    <div className="col-span-2 flex items-center gap-1">
+                    <div className="col-span-2 flex items-center gap-0.5">
                       <input
                         type="text"
                         value={rule.urlFilter}
@@ -727,14 +884,21 @@ export default function App() {
                           updateHeaderRule(rule.id, { urlFilter: e.target.value })
                         }
                         placeholder="*"
-                        className="w-full h-6 px-2 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-zinc-400 focus:outline-none focus:border-blue-500"
+                        className="w-full h-6 px-1.5 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-zinc-400 focus:outline-none focus:border-blue-500"
                       />
+                      <button
+                        onClick={() => duplicateHeaderRule(rule)}
+                        title="Duplicate rule"
+                        className="h-6 w-5 rounded shrink-0 flex items-center justify-center text-zinc-500 hover:text-zinc-200"
+                      >
+                        <CopyPlus className="w-3 h-3" />
+                      </button>
                       <button
                         onClick={() => deleteHeaderRule(rule.id)}
                         title="Delete rule"
-                        className="h-6 w-6 rounded shrink-0 flex items-center justify-center text-zinc-500 hover:text-red-400 hover:bg-zinc-800/60"
+                        className="h-6 w-5 rounded shrink-0 flex items-center justify-center text-zinc-500 hover:text-red-400"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3 h-3" />
                       </button>
                     </div>
                   </div>
@@ -748,8 +912,7 @@ export default function App() {
         {/* TAB 2: BODY OVERRIDE & API MOCKING                                  */}
         {/* =================================================================== */}
         {activeTab === 'body' && (
-          <div className="grid grid-cols-12 h-[479px]">
-            {/* Left Sidebar */}
+          <div className="grid grid-cols-12 h-[454px]">
             <div className="col-span-4 border-r border-zinc-800/80 flex flex-col bg-[#101217]">
               <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800/80">
                 <span className="text-[11px] font-medium text-zinc-400">
@@ -818,7 +981,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Right Detail Editor */}
             <div className="col-span-8 p-3.5 flex flex-col h-full bg-[#0d0f12]">
               {(() => {
                 const selected =
@@ -995,31 +1157,36 @@ export default function App() {
         )}
 
         {/* =================================================================== */}
-        {/* TAB 3: CORS, URL REDIRECT & DISTRIBUTED CONTEXT                     */}
+        {/* TAB 3: CORS, QUERY PARAMS, REDIRECT & CONTEXT                       */}
         {/* =================================================================== */}
         {activeTab === 'routing' && (
           <div className="p-3.5 space-y-4">
-            {/* Section 1: CORS & URL Redirects */}
             <div className="rounded-lg bg-[#12151a] border border-zinc-800/80 overflow-hidden">
               <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-zinc-800">
                 <div className="flex items-center gap-2">
                   <Globe className="w-3.5 h-3.5 text-blue-400" />
                   <span className="text-xs font-semibold text-zinc-100">
-                    CORS Unblock & URL Redirects
+                    CORS, Query Params & URL Redirects
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => addRedirectCorsRule('cors_bypass')}
-                    className="h-6 px-2.5 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-medium"
+                    className="h-6 px-2 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-medium"
                   >
-                    + Add CORS Bypass
+                    + CORS Bypass
+                  </button>
+                  <button
+                    onClick={() => addRedirectCorsRule('query_param')}
+                    className="h-6 px-2 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-medium"
+                  >
+                    + Query Param
                   </button>
                   <button
                     onClick={() => addRedirectCorsRule('redirect')}
                     className="h-6 px-2.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-medium"
                   >
-                    + Add URL Redirect
+                    + URL Redirect
                   </button>
                 </div>
               </div>
@@ -1027,7 +1194,7 @@ export default function App() {
               <div className="divide-y divide-zinc-800/60">
                 {activeProfile.redirectCorsRules.length === 0 ? (
                   <div className="py-8 text-center text-zinc-500 text-xs">
-                    No active CORS or URL Redirect rules.
+                    No active CORS, Query Param, or Redirect rules.
                   </div>
                 ) : (
                   activeProfile.redirectCorsRules.map((rule) => (
@@ -1048,10 +1215,16 @@ export default function App() {
                           className={`font-mono-code text-[10px] px-1.5 py-0.5 rounded font-medium ${
                             rule.type === 'cors_bypass'
                               ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                              : rule.type === 'query_param'
+                              ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
                               : 'bg-blue-500/15 text-blue-300 border border-blue-500/30'
                           }`}
                         >
-                          {rule.type === 'cors_bypass' ? 'CORS' : '307'}
+                          {rule.type === 'cors_bypass'
+                            ? 'CORS'
+                            : rule.type === 'query_param'
+                            ? 'QUERY'
+                            : '307'}
                         </span>
                       </div>
 
@@ -1089,6 +1262,33 @@ export default function App() {
                         </div>
                       )}
 
+                      {rule.type === 'query_param' && (
+                        <div className="col-span-5 grid grid-cols-2 gap-1.5">
+                          <input
+                            type="text"
+                            value={rule.queryKey || ''}
+                            onChange={(e) =>
+                              updateRedirectCorsRule(rule.id, {
+                                queryKey: e.target.value,
+                              })
+                            }
+                            placeholder="param_key"
+                            className="w-full h-6 px-2 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-amber-300"
+                          />
+                          <input
+                            type="text"
+                            value={rule.queryValue || ''}
+                            onChange={(e) =>
+                              updateRedirectCorsRule(rule.id, {
+                                queryValue: e.target.value,
+                              })
+                            }
+                            placeholder="value"
+                            className="w-full h-6 px-2 rounded bg-zinc-900 border border-zinc-800 font-mono-code text-[11px] text-emerald-300"
+                          />
+                        </div>
+                      )}
+
                       <div className="col-span-1 flex justify-end">
                         <button
                           onClick={() => deleteRedirectCorsRule(rule.id)}
@@ -1103,7 +1303,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Section 2: Distributed Tracing & Cluster Context (Optional Module) */}
             <div className="rounded-lg bg-[#12151a] border border-zinc-800/80 p-3.5 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -1113,7 +1312,7 @@ export default function App() {
                       Cluster & Mesh Context Propagation (Optional)
                     </span>
                     <p className="text-[11px] text-zinc-500">
-                      Automatically inject W3C OpenTelemetry baggage, Envoy trace flags, or Kubernetes Telepresence intercept headers.
+                      Inject W3C OpenTelemetry baggage, Envoy trace flags, or Kubernetes Telepresence intercept headers.
                     </p>
                   </div>
                 </div>
@@ -1321,9 +1520,63 @@ export default function App() {
         )}
       </main>
 
+      {/* Footer Status Bar */}
+      <footer className="h-6 px-3.5 bg-[#101217] border-t border-zinc-800/80 flex items-center justify-between text-[10px] text-zinc-500">
+        <div className="flex items-center gap-2">
+          <span>
+            Tab Scope: <code className="text-zinc-300 font-mono-code">{activeDomainPattern}</code>
+          </span>
+        </div>
+        <span>ReqForge by Xristal</span>
+      </footer>
+
+      {/* cURL Import Modal */}
+      {showCurlModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-6 z-50">
+          <div className="w-full max-w-lg rounded-lg bg-[#12151a] border border-zinc-700 p-4 space-y-3 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-zinc-100">
+                Import Rules from cURL
+              </span>
+              <button
+                onClick={() => setShowCurlModal(false)}
+                className="text-zinc-400 hover:text-white text-xs"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-[11px] text-zinc-400">
+              Right-click any network request in DevTools → <strong>Copy as cURL</strong> and paste below. Headers (<code>-H</code>) and request payloads (<code>--data-raw</code>) will be extracted automatically.
+            </p>
+            <textarea
+              rows={6}
+              value={curlInput}
+              onChange={(e) => setCurlInput(e.target.value)}
+              placeholder={`curl 'https://api.example.com/v1/orders' \\\n  -H 'Authorization: Bearer eyJ...' \\\n  -H 'X-Tenant-ID: acme' \\\n  --data-raw '{"dryRun":true}'`}
+              spellCheck={false}
+              className="w-full p-2.5 rounded bg-[#08090b] border border-zinc-800 font-mono-code text-[11px] text-emerald-300 focus:outline-none focus:border-blue-500"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowCurlModal(false)}
+                className="h-7 px-3 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleImportCurl}
+                className="h-7 px-3 rounded bg-blue-600 hover:bg-blue-500 text-xs text-white font-medium"
+              >
+                Extract & Add Rules
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Subtle Toast */}
       {toast && (
-        <div className="fixed bottom-3 right-3.5 px-3 py-1.5 rounded-md bg-zinc-800 border border-zinc-700 text-zinc-100 text-[11px] font-medium shadow-lg">
+        <div className="fixed bottom-8 right-3.5 px-3 py-1.5 rounded-md bg-zinc-800 border border-zinc-700 text-zinc-100 text-[11px] font-medium shadow-lg z-50">
           {toast}
         </div>
       )}

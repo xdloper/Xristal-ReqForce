@@ -1,205 +1,179 @@
-# HTTP Interceptor & Telepresence
+# ReqForge
 
 [![CI](https://github.com/xdloper/dev-browser-manipulations/actions/workflows/ci.yml/badge.svg)](https://github.com/xdloper/dev-browser-manipulations/actions/workflows/ci.yml)
 [![Release](https://github.com/xdloper/dev-browser-manipulations/actions/workflows/release.yml/badge.svg)](https://github.com/xdloper/dev-browser-manipulations/actions/workflows/release.yml)
-[![GitHub release](https://img.shields.io/github/v/release/xdloper/dev-browser-manipulations)](https://github.com/xdloper/dev-browser-manipulations/releases)
+[![Version](https://img.shields.io/github/v/release/xdloper/dev-browser-manipulations)](https://github.com/xdloper/dev-browser-manipulations/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
-A lightweight Manifest V3 browser extension for Chrome, Edge, Brave, and Firefox to manipulate HTTP headers, mutate `fetch` / `XMLHttpRequest` bodies, bypass CORS restrictions, and route traffic through Kubernetes Telepresence intercepts.
-
-Built because many legacy header extensions were removed from browser stores or migrated behind paywalls and telemetry trackers. This project runs entirely locally with zero external network calls.
-
----
-
-## Features
-
-- **Request & Response Headers (`declarativeNetRequest`)**
-  - `SET`, `ADD`, or `DEL` any HTTP request or response header at the network layer.
-  - Scope rules by URL wildcard patterns (`*`, `*://*.example.com/*`).
-- **Kubernetes Telepresence Integration**
-  - Dedicated workflow for `x-telepresence-intercept-id` and W3C OpenTelemetry `baggage` propagation (`baggage: telepresence-intercept-id=...`).
-  - Paste raw `telepresence status` / `telepresence intercept` terminal output to extract the intercept ID automatically.
-  - Optional `x-envoy-force-trace: true` and custom developer context headers.
-- **Request & Response Body Override (`fetch` & `XHR`)**
-  - **Shallow Merge JSON**: Patch specific keys into incoming JSON responses or outgoing JSON requests (e.g., toggling feature flags) without breaking the rest of the payload.
-  - **Full Body Replace (Mocking)**: Short-circuit or overwrite responses with custom JSON/text payloads, custom HTTP status codes (`200`, `400`, `401`, `500`), and simulated network latency (`ms`).
-- **CORS Override & URL Redirects**
-  - Inject permissive `Access-Control-Allow-*` response headers for local development.
-  - Redirect production API endpoints (via wildcard or regex substitution) to `http://localhost:<port>`.
-- **Profiles & Portable Config**
-  - Switch between isolated profiles (e.g., `Local Dev`, `Staging`, `QA`) and export/import configurations as JSON.
+**ReqForge** is an open-source, zero-telemetry Manifest V3 browser extension by **Xristal** for intercepting and mutating HTTP headers, overriding `fetch` / `XMLHttpRequest` payloads, mocking REST endpoints, injecting URL query parameters, bypassing CORS, and propagating distributed tracing / Kubernetes context headers across **Chrome, Edge, Brave, and Firefox**.
 
 ---
 
-## Build Output Structure (`dist/`)
+## Capability Matrix
 
-Pre-built bundles for each browser are organized cleanly under `dist/`:
+| Capability | Execution Layer | Details |
+| :--- | :--- | :--- |
+| **HTTP Header Manipulation** | Network (`declarativeNetRequest`) + Page | `Set`, `Append`, or `Remove` any request or response header (`Authorization`, `X-API-Key`, `Cache-Control`, `Content-Security-Policy`, `X-Forwarded-For`). |
+| **JSON Shallow Merge** | Page (`MAIN` world `fetch` / `XHR`) | Patch individual keys inside incoming JSON responses or outgoing JSON requests while keeping the rest of the server payload intact. |
+| **Endpoint Mocking & Chaos** | Page (`MAIN` world `fetch` / `XHR`) | Short-circuit endpoints with custom payloads, custom HTTP status codes (`200`, `401`, `429`, `503`), and simulated latency (`ms`). |
+| **cURL Importer** | Popup Workspace | Paste raw **Copy as cURL** output from browser DevTools to extract `-H` headers and `--data-raw` payloads into active rules. |
+| **CORS Bypass & `307` Redirects** | Network (`declarativeNetRequest`) | Inject `Access-Control-Allow-*` response headers and route production/staging URLs to `http://localhost:<port>` via wildcard or regex capture groups. |
+| **Query String Mutation** | Network (`queryTransform`) | Automatically append or overwrite URL query parameters (e.g., `?debug=1`, `?version=canary`) across matching requests. |
+| **Mesh & Cluster Context** | Network + Page | Optional propagation for W3C OpenTelemetry `baggage`, `x-envoy-force-trace`, multi-tenant headers, and `x-telepresence-intercept-id`. |
+| **Workspaces & Domain Pinning** | `storage.local` | Maintain isolated profiles (`Local`, `Staging`, `QA`), pin rules to the active tab's hostname in one click, and share setups via JSON export/import. |
+
+---
+
+## Architecture
+
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│ Popup Workspace (React + TypeScript + Tailwind)                         │
+│  • Workspaces, cURL Parser, Rule Editor, Domain Pinning, Traffic Log    │
+└───────────────────────────────┬─────────────────────────────────────────┘
+                                │ chrome.storage.local + SYNC_STATE
+        ┌───────────────────────┴───────────────────────┐
+        ▼                                               ▼
+┌───────────────────────────────────┐   ┌─────────────────────────────────┐
+│ Service Worker (background.js)    │   │ Content Bridge (content.js)     │
+│  • declarativeNetRequest engine   │   │  • Injects scripts/injected.js  │
+│  • Wire-level Req/Res Headers     │   │    at document_start            │
+│  • CORS Override & 307 Redirects  │   │  • Relays live state & logs     │
+│  • URL Query Param Transforms     │   └───────────────┬─────────────────┘
+└───────────────────────────────────┘                   ▼
+                                        ┌─────────────────────────────────┐
+                                        │ Page Interceptor (injected.js)  │
+                                        │  • Wraps window.fetch & XHR     │
+                                        │  • Shallow JSON Merge & Mocks   │
+                                        │  • Status Code & Delay Override │
+                                        └─────────────────────────────────┘
+```
+
+---
+
+## Engineering Use Cases
+
+### 1. Feature Flag & Role Overriding (Response Shallow Merge)
+
+Test UI states gated behind backend permissions or feature flags without changing frontend source code or database rows:
+
+- **Target:** `GET /api/v1/session`
+- **Strategy:** `Response: Shallow Merge JSON Keys`
+- **Payload:**
+  ```json
+  {
+    "role": "SUPER_ADMIN",
+    "features": {
+      "newCheckoutFlow": true,
+      "betaAnalytics": true
+    }
+  }
+  ```
+- **Outcome:** Real API fields (`userId`, `email`, `org`) remain untouched; only `role` and `features` are patched before the application consumes the response.
+
+### 2. Chaos Testing & Unbuilt API Mocking
+
+Verify how frontend components handle `429 Too Many Requests`, `503 Service Unavailable`, or slow networks:
+
+- **Target:** `POST /api/v1/payments/charge`
+- **Strategy:** `Response: Full Body Replace (Mock Endpoint)`
+- **HTTP Status:** `503` · **Delay:** `2000 ms`
+- **Payload:**
+  ```json
+  {
+    "error": "GATEWAY_TIMEOUT",
+    "retryAfterSeconds": 30
+  }
+  ```
+
+### 3. Hybrid Localhost Routing + CORS Unblock
+
+Keep using a hosted staging frontend while routing a single API service to your local machine:
+
+- **Redirect Source:** `^https://api\.staging\.example\.com/v2/orders/(.*)`
+- **Redirect Destination:** `http://localhost:8080/v2/orders/\1`
+- **Companion Rule:** Enable `+ CORS Bypass` on `*` to prevent cross-origin preflight failures between the staging origin and `localhost`.
+
+### 4. Instant cURL Replay & Mutation
+
+1. Copy any request from Chrome/Firefox DevTools via **Copy → Copy as cURL**.
+2. Open **ReqForge** → **Import cURL** → paste the command.
+3. All `-H` request headers and `--data-raw` request bodies are parsed into editable, toggleable rules scoped to that host.
+
+### 5. Distributed Tracing & Kubernetes Service Mesh Routing
+
+When working against shared Kubernetes clusters (Envoy, Istio, OpenTelemetry, or Telepresence), enable **Cluster & Mesh Context Propagation** under **CORS, Query & Routing** to attach routing metadata (`baggage`, `x-envoy-force-trace`, `x-telepresence-intercept-id`) only to your browser's traffic.
+
+---
+
+## Pre-Built Output Structure (`dist/`)
+
+Every release builds clean, standalone, hash-free browser bundles under `dist/`:
 
 ```text
 dist/
 ├── chrome/
+│   ├── icons/
 │   ├── index.html
 │   ├── manifest.json
 │   ├── scripts/
 │   │   ├── background.js
-│   │   ├── browser.js
 │   │   ├── content.js
 │   │   ├── injected.js
 │   │   └── popup.js
 │   └── styles/
 │       └── popup.css
 ├── edge/
-│   ├── index.html
-│   ├── manifest.json
-│   ├── scripts/
-│   └── styles/
+│   └── (Chromium-optimized bundle)
 └── firefox/
-    ├── index.html
-    ├── manifest.json
-    ├── scripts/
-    └── styles/
-```
-
----
-
-## Architecture
-
-| Layer | File | Responsibility |
-| :--- | :--- | :--- |
-| **Background Worker** | `src/background/index.ts` | Translates active profile rules into browser-native `declarativeNetRequest` dynamic rules for network-level header modification, CORS headers, and `307` redirects. |
-| **Content Script** | `src/content/index.ts` | Injects the page-context interceptor at `document_start` and bridges state updates between `chrome.storage` and the page. |
-| **Page Interceptor** | `src/injected/index.ts` | Wraps `window.fetch` and `window.XMLHttpRequest` in the `MAIN` world to mutate request/response bodies, status codes, and artificial delays. |
-| **Popup UI** | `src/App.tsx` | React + TypeScript + Tailwind CSS interface modeled after browser DevTools. |
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js `>= 18`
-- npm `>= 9`
-
-### Build from Source
-
-```bash
-git clone https://github.com/xdloper/dev-browser-manipulations.git
-cd dev-browser-manipulations
-npm install
-npm run build
-```
-
-For active development:
-
-```bash
-npm run dev
+    └── (Gecko MV3 bundle)
 ```
 
 ---
 
 ## Installation
 
-You can either download the latest `.zip` archive from [GitHub Releases](https://github.com/xdloper/dev-browser-manipulations/releases) or load directly from `dist/`:
+Download a packaged `.zip` from [GitHub Releases](https://github.com/xdloper/dev-browser-manipulations/releases) or load directly from `dist/`:
 
-### Google Chrome / Brave
-
-1. Open `chrome://extensions`.
-2. Enable **Developer mode** in the top-right corner.
-3. Click **Load unpacked**.
-4. Select `dist/chrome`.
-
-### Microsoft Edge
-
-1. Open `edge://extensions`.
-2. Enable **Developer mode**.
-3. Click **Load unpacked**.
-4. Select `dist/edge`.
-
-### Mozilla Firefox
-
-1. Open `about:debugging#/runtime/this-firefox`.
-2. Click **Load Temporary Add-on...**.
-3. Select `dist/firefox/manifest.json`.
+- **Chrome / Brave:** Open `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select `dist/chrome`.
+- **Microsoft Edge:** Open `edge://extensions` → enable **Developer mode** → **Load unpacked** → select `dist/edge`.
+- **Mozilla Firefox:** Open `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on...** → select `dist/firefox/manifest.json`.
 
 ---
 
-## Use Cases & Examples
+## Development & Semantic Versioning
 
-### 1. Kubernetes & Microservice Context Routing
+```bash
+git clone https://github.com/xdloper/dev-browser-manipulations.git
+cd dev-browser-manipulations
+npm install
 
-In shared Kubernetes clusters (using Telepresence, Envoy, Istio, or OpenTelemetry), routing specific browser requests to an isolated service instance without affecting other users requires propagating context headers across the call graph.
+# Build dist/chrome, dist/edge, and dist/firefox
+npm run build
 
-- **Headers injected:**
-  ```http
-  x-telepresence-intercept-id: 9842a1b2-c3d4:order-service
-  baggage: telepresence-intercept-id=9842a1b2-c3d4:order-service
-  x-envoy-force-trace: true
-  ```
-- **Result:** The ingress gateway and downstream services route only your browser session's traffic to the target pod or local workload while production/staging traffic continues normally.
+# Watch mode during development
+npm run dev
+```
 
-### 2. Feature Flag & Permission Testing (`Body Override`)
+Releases follow [Semantic Versioning](https://semver.org/) and automatically synchronize `package.json`, `public/manifest.json`, `dist/*`, git commits, and git tags:
 
-Instead of modifying frontend code or changing database records to test UI states, patch specific JSON fields on the fly using **Response: Shallow Merge JSON**.
-
-- **Target:** `GET /api/v1/user/session`
-- **Override Payload:**
-  ```json
-  {
-    "role": "SUPER_ADMIN",
-    "features": {
-      "newBillingFlow": true,
-      "auditLogsEnabled": true
-    }
-  }
-  ```
-- **Result:** All existing fields from the real API response are preserved, and only `role` and `features` are overwritten before the frontend application reads the response.
-
-### 3. Mocking Unbuilt Endpoints & Simulating Failures
-
-Test how the frontend handles edge cases (`401 Unauthorized`, `429 Too Many Requests`, `500 Internal Server Error`) or high network latency before the backend endpoint is ready.
-
-- **Target:** `POST /api/v1/payments/checkout`
-- **Mode:** `Response: Replace Full Body (Mock)`
-- **Status Code:** `503` | **Delay:** `2500 ms`
-- **Payload:**
-  ```json
-  {
-    "error": "UPSTREAM_TIMEOUT",
-    "message": "Payment gateway did not respond within the expected window."
-  }
-  ```
-
-### 4. Authentication, IP Spoofing & Cache Control (`Headers`)
-
-Inject or strip HTTP headers globally or per domain for debugging auth flows, CDN behavior, or multi-tenant routing:
-
-| Operation | Target | Header | Value | Use Case |
-| :--- | :--- | :--- | :--- | :--- |
-| `SET` | `REQ` | `Authorization` | `Bearer eyJhbGci...` | Test API endpoints with a specific JWT token |
-| `SET` | `REQ` | `x-tenant-id` | `acme-corp-staging` | Switch multi-tenant context across requests |
-| `SET` | `REQ` | `x-forwarded-for` | `10.24.0.15` | Test geo/IP-based backend rules |
-| `SET` | `REQ` | `Cache-Control` | `no-cache, no-store` | Bypass intermediate CDN and browser caching |
-| `DEL` | `RES` | `Content-Security-Policy` | *(removed)* | Debug third-party script or frame integration locally |
-
-### 5. Hybrid Local Development (`CORS / Redirect`)
-
-Run a single microservice on `localhost` while the frontend application continues running on the staging domain:
-
-- **Source Filter:** `^https://api\.staging\.example\.com/v2/users/(.*)`
-- **Destination:** `http://localhost:8080/v2/users/\1`
-- Combine with a **CORS Rule** (`Access-Control-Allow-Origin: *`) to prevent preflight blocks between the staging origin and `localhost`.
+```bash
+npm run release:patch   # 1.3.0 -> 1.3.1
+npm run release:minor   # 1.3.0 -> 1.4.0
+npm run release:major   # 1.3.0 -> 2.0.0
+```
 
 ---
 
 ## Privacy & Permissions
 
-- **`declarativeNetRequest` / `declarativeNetRequestWithHostAccess`**: Required to modify HTTP headers and redirect requests.
-- **`storage`**: Stores your profiles and rules locally in `chrome.storage.local`.
-- **`scripting` & `<all_urls>`**: Required to inject the `fetch`/`XHR` body override script at `document_start`.
-
-No analytics, tracking scripts, or external servers are used.
+- **100% Local Execution:** No analytics, telemetry, remote scripts, or external servers. All rules and workspaces stay in `storage.local`.
+- **`declarativeNetRequest` / `declarativeNetRequestWithHostAccess`:** Applies network-level header rules, query transforms, and URL redirects.
+- **`scripting` & `<all_urls>`:** Injects the local page-level `fetch`/`XHR` interceptor at `document_start` on matching HTTP/HTTPS pages.
 
 ---
 
-## License
+## Author & License
 
-[MIT](./LICENSE)
+Created and maintained by **Xristal**.
+Released under the [MIT License](./LICENSE).
