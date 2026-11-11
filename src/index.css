@@ -2,47 +2,51 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+  Channel tokens (R G B) so Tailwind opacity modifiers work:
+  border-rf-border/80 → rgb(var(--rf-border) / 0.8)
+*/
 :root,
 html[data-theme='dark'] {
   color-scheme: dark;
-  --rf-base: #0d0f12;
-  --rf-raised: #12151a;
-  --rf-sunken: #101217;
-  --rf-deep: #08090b;
-  --rf-input: #18181b;
-  --rf-hover: #27272a;
-  --rf-strong: #3f3f46;
-  --rf-border: #27272a;
-  --rf-border-strong: #3f3f46;
-  --rf-1: #f4f4f5;
-  --rf-2: #e4e4e7;
-  --rf-3: #d4d4d8;
-  --rf-4: #a1a1aa;
-  --rf-5: #71717a;
-  --rf-6: #52525b;
-  --rf-scrollbar: #27272a;
-  --rf-scrollbar-hover: #3f3f46;
+  --rf-base: 13 15 18;
+  --rf-raised: 18 21 26;
+  --rf-sunken: 16 18 23;
+  --rf-deep: 8 9 11;
+  --rf-input: 24 24 27;
+  --rf-hover: 39 39 42;
+  --rf-strong: 63 63 70;
+  --rf-border: 39 39 42;
+  --rf-border-strong: 63 63 70;
+  --rf-1: 244 244 245;
+  --rf-2: 228 228 231;
+  --rf-3: 212 212 216;
+  --rf-4: 161 161 170;
+  --rf-5: 113 113 122;
+  --rf-6: 82 82 91;
+  --rf-scrollbar: 39 39 42;
+  --rf-scrollbar-hover: 63 63 70;
 }
 
 html[data-theme='light'] {
   color-scheme: light;
-  --rf-base: #f4f4f5;
-  --rf-raised: #ffffff;
-  --rf-sunken: #ececee;
-  --rf-deep: #ffffff;
-  --rf-input: #ffffff;
-  --rf-hover: #e4e4e7;
-  --rf-strong: #d4d4d8;
-  --rf-border: #d4d4d8;
-  --rf-border-strong: #a1a1aa;
-  --rf-1: #18181b;
-  --rf-2: #27272a;
-  --rf-3: #3f3f46;
-  --rf-4: #52525b;
-  --rf-5: #71717a;
-  --rf-6: #a1a1aa;
-  --rf-scrollbar: #d4d4d8;
-  --rf-scrollbar-hover: #a1a1aa;
+  --rf-base: 244 244 245;
+  --rf-raised: 255 255 255;
+  --rf-sunken: 236 236 238;
+  --rf-deep: 255 255 255;
+  --rf-input: 255 255 255;
+  --rf-hover: 228 228 231;
+  --rf-strong: 212 212 216;
+  --rf-border: 212 212 216;
+  --rf-border-strong: 161 161 170;
+  --rf-1: 24 24 27;
+  --rf-2: 39 39 42;
+  --rf-3: 63 63 70;
+  --rf-4: 82 82 91;
+  --rf-5: 113 113 122;
+  --rf-6: 161 161 170;
+  --rf-scrollbar: 212 212 216;
+  --rf-scrollbar-hover: 161 161 170;
 }
 
 html,
@@ -50,18 +54,20 @@ body,
 #root {
   margin: 0;
   padding: 0;
-  background-color: var(--rf-base);
-  color: var(--rf-2);
+  width: 780px;
+  min-width: 780px;
+  background-color: rgb(var(--rf-base));
+  color: rgb(var(--rf-2));
   font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
   font-size: 12px;
   -webkit-font-smoothing: antialiased;
 }
 
-/* In full-tab or detached resizable window mode, fill 100% of viewport */
 html.is-fluid-window,
 html.is-fluid-window body,
 html.is-fluid-window #root {
   width: 100vw;
+  min-width: 0;
   height: 100vh;
   overflow: hidden;
 }
@@ -78,9 +84,9 @@ html.is-fluid-window #root {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--rf-scrollbar);
+  background: rgb(var(--rf-scrollbar));
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--rf-scrollbar-hover);
+  background: rgb(var(--rf-scrollbar-hover));
 }

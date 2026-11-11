@@ -570,12 +570,12 @@ export default function App() {
   });
 
   return (
-    <div className="flex flex-col h-[560px] bg-rf-base text-rf-2 select-none">
+    <div className="flex flex-col w-[780px] h-[560px] bg-rf-base text-rf-2 select-none overflow-hidden">
       {/* Top Application Header */}
-      <header className="flex items-center justify-between h-12 px-3.5 bg-rf-raised border-b border-rf-border/80">
-        {/* Left: Our Official Logo, Brand & Workspace */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2.5">
+      <header className="flex items-center justify-between gap-3 h-12 px-3.5 bg-rf-raised border-b border-rf-border shrink-0">
+        {/* Left: Logo, Brand & Workspace */}
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex items-center gap-2 shrink-0">
             <XristalLogo
               className="h-7 w-7 shrink-0"
               disabled={!state.globalEnabled}
@@ -588,7 +588,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="h-4 w-[1px] bg-rf-hover" />
+          <div className="h-4 w-[1px] bg-rf-border shrink-0" />
 
           {addingProfile ? (
             <div className="flex items-center gap-1">
@@ -656,7 +656,7 @@ export default function App() {
         </div>
 
         {/* Right: cURL + Master Toggle — language/theme live under Settings */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 shrink-0">
           <button
             onClick={() => setShowCurlModal(true)}
             title={t.importCurlTitle}
@@ -666,7 +666,7 @@ export default function App() {
             <span>{t.importCurl}</span>
           </button>
 
-          <div className="h-4 w-[1px] bg-rf-hover mx-0.5" />
+          <div className="h-4 w-[1px] bg-rf-border mx-0.5" />
 
           <div
             onClick={() =>
@@ -727,8 +727,8 @@ export default function App() {
         )}
 
       {/* Navigation Bar */}
-      <nav className="flex items-center justify-between h-9 px-3.5 bg-rf-sunken border-b border-rf-border/80">
-        <div className="flex items-center gap-1 h-full">
+      <nav className="flex items-center justify-between h-9 px-3.5 bg-rf-sunken border-b border-rf-border shrink-0">
+        <div className="flex items-center h-full min-w-0 overflow-x-auto">
           {(
             [
               {
@@ -760,6 +760,7 @@ export default function App() {
                 label: t.tabSettings,
                 icon: Settings,
                 count: 0,
+                iconOnly: true,
               },
             ]
           ).map((tab) => {
@@ -768,23 +769,24 @@ export default function App() {
             return (
               <button
                 key={tab.id}
+                title={tab.label}
                 onClick={() => {
                   setActiveTab(tab.id);
                   if (tab.id === 'logs') {
                     loadExtensionState().then(setState);
                   }
                 }}
-                className={`h-full px-3 flex items-center gap-1.5 border-b-2 text-[11px] font-medium transition-colors ${
+                className={`h-full px-2.5 flex items-center gap-1.5 border-b-2 text-[11px] font-medium whitespace-nowrap transition-colors ${
                   isActive
-                    ? 'border-blue-500 text-rf-1 bg-rf-input/40'
+                    ? 'border-blue-500 text-rf-1 bg-rf-input/50'
                     : 'border-transparent text-rf-4 hover:text-rf-2'
                 }`}
               >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{tab.label}</span>
+                <Icon className="w-3.5 h-3.5 shrink-0" />
+                {!tab.iconOnly && <span>{tab.label}</span>}
                 {tab.count > 0 && (
                   <span
-                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono-code ${
+                    className={`px-1.5 rounded text-[10px] font-mono-code leading-4 ${
                       isActive
                         ? 'bg-blue-500/20 text-blue-300'
                         : 'bg-rf-hover text-rf-4'
@@ -823,7 +825,7 @@ export default function App() {
       </nav>
 
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 min-h-0 overflow-y-auto">
         {/* =================================================================== */}
         {/* TAB 1: HTTP HEADERS                                                 */}
         {/* =================================================================== */}
@@ -1774,7 +1776,7 @@ export default function App() {
       </main>
 
       {/* Footer Status Bar */}
-      <footer className="h-6 px-3.5 bg-rf-sunken border-t border-rf-border/80 flex items-center justify-between text-[10px] text-rf-5">
+      <footer className="h-6 px-3.5 bg-rf-sunken border-t border-rf-border flex items-center justify-between text-[10px] text-rf-5 shrink-0">
         <div className="flex items-center gap-2">
           <span>
             {t.tabScope}: <code className="text-rf-3 font-mono-code">{activeDomainPattern}</code>

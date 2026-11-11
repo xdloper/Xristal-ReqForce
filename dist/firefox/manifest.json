@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ReqForge — HTTP Header, Body & Network Manipulator",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "author": "Xristal",
   "homepage_url": "https://github.com/xdloper/dev-browser-manipulations",
   "description": "Intercept and modify HTTP request/response headers, override JSON/text bodies, mock APIs, bypass CORS, and route URLs.",
