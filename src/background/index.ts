@@ -281,6 +281,28 @@ function buildDnrRules(state: ExtensionState): chrome.declarativeNetRequest.Rule
             resourceTypes: ALL_RESOURCE_TYPES,
           },
         });
+      } else if (urlFilter.includes('*')) {
+        // Convert simple wildcard (e.g. https://api.prod.com/v1/* -> http://localhost:8080/v1/*) into regexSubstitution
+        const regexSource =
+          '^' +
+          urlFilter
+            .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+            .replace(/\*/g, '(.*)');
+        const regexDest = dest.includes('*') ? dest.replace(/\*/, '\\1') : dest;
+        rules.push({
+          id: ruleIdCounter++,
+          priority: 80,
+          action: {
+            type: 'redirect' as chrome.declarativeNetRequest.RuleActionType,
+            redirect: {
+              regexSubstitution: regexDest,
+            },
+          },
+          condition: {
+            regexFilter: regexSource,
+            resourceTypes: ALL_RESOURCE_TYPES,
+          },
+        });
       } else {
         rules.push({
           id: ruleIdCounter++,
@@ -458,46 +480,26 @@ extApi.runtime.onStartup?.addListener(() => {
   syncAllRules();
 });
 
-let storageQueue: Promise<void> = Promise.resolve();
-
-function enqueueStorageUpdate(
-  fn: (current: ExtensionState) => ExtensionState | Promise<ExtensionState>
-): Promise<ExtensionState> {
-  let resultState: ExtensionState = FALLBACK_STATE;
-  storageQueue = storageQueue
-    .then(async () => {
-      const data = await extApi.storage.local.get('devManipulatorState');
-      const current: ExtensionState = data?.devManipulatorState || FALLBACK_STATE;
-      resultState = await fn(current);
-      await extApi.storage.local.set({ devManipulatorState: resultState });
-    })
-    .catch(() => {});
-  return storageQueue.then(() => resultState);
-}
+let logQueue: Promise<void> = Promise.resolve();
 
 extApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === 'SYNC_STATE') {
-    enqueueStorageUpdate((current) => {
-      const incoming: ExtensionState = message.state || current;
-      const keepExistingLogs =
-        !message.replaceLogs &&
-        Array.isArray(current.logs) &&
-        current.logs.length > 0 &&
-        (!incoming.logs || incoming.logs.length < current.logs.length);
-      return {
-        ...incoming,
-        logs: keepExistingLogs ? current.logs : incoming.logs || [],
-      };
-    })
-      .then((merged) => syncAllRules(merged))
-      .then(() => sendResponse({ ok: true }));
+    const incoming: ExtensionState = message.state;
+    if (incoming) {
+      void syncAllRules(incoming).then(() => sendResponse({ ok: true }));
+    } else {
+      void syncAllRules().then(() => sendResponse({ ok: true }));
+    }
     return true;
   }
 
   if (message?.type === 'CLEAR_INTERCEPT_LOGS') {
-    enqueueStorageUpdate((current) => ({ ...current, logs: [] })).then(() =>
-      sendResponse({ ok: true })
-    );
+    logQueue = logQueue
+      .then(async () => {
+        await extApi.storage.local.set({ devManipulatorLogs: [] });
+      })
+      .catch(() => {});
+    logQueue.then(() => sendResponse({ ok: true }));
     return true;
   }
 
@@ -510,10 +512,19 @@ extApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message?.type === 'ADD_INTERCEPT_LOG') {
     const newEntry: InterceptLogEntry = message.entry;
-    enqueueStorageUpdate((st) => {
-      const updatedLogs = [newEntry, ...(st.logs || [])].slice(0, 120);
-      return { ...st, logs: updatedLogs };
-    }).then(() => sendResponse({ ok: true }));
+    logQueue = logQueue
+      .then(async () => {
+        const data = await extApi.storage.local.get('devManipulatorLogs');
+        const currentLogs: InterceptLogEntry[] = Array.isArray(
+          data?.devManipulatorLogs
+        )
+          ? data.devManipulatorLogs
+          : [];
+        const updatedLogs = [newEntry, ...currentLogs].slice(0, 120);
+        await extApi.storage.local.set({ devManipulatorLogs: updatedLogs });
+      })
+      .catch(() => {});
+    logQueue.then(() => sendResponse({ ok: true }));
     return true;
   }
 
@@ -522,17 +533,7 @@ extApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 extApi.storage?.onChanged?.addListener((changes, area) => {
   if (area === 'local' && changes.devManipulatorState?.newValue) {
-    const prev = changes.devManipulatorState.oldValue as ExtensionState | undefined;
     const next = changes.devManipulatorState.newValue as ExtensionState;
-    // Only re-sync DNR & tab rules when rules or globalEnabled changed (ignore pure log appends)
-    if (
-      !prev ||
-      prev.globalEnabled !== next.globalEnabled ||
-      prev.activeProfileId !== next.activeProfileId ||
-      prev.trafficMonitorEnabled !== next.trafficMonitorEnabled ||
-      JSON.stringify(prev.profiles) !== JSON.stringify(next.profiles)
-    ) {
-      void syncAllRules(next);
-    }
+    void syncAllRules(next);
   }
 });

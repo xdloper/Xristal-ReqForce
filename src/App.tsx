@@ -62,6 +62,23 @@ function getAppVersion(): string {
   }
 }
 
+function urlToDomainPattern(rawUrl?: string): string | null {
+  if (!rawUrl || (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://'))) {
+    return null;
+  }
+  try {
+    const u = new URL(rawUrl);
+    const bareHost = u.hostname.replace(/^www\./i, '');
+    const isSingleLabelOrIp =
+      !bareHost.includes('.') || /^\d+\.\d+\.\d+\.\d+$/.test(bareHost);
+    return isSingleLabelOrIp
+      ? `*://${bareHost}/*`
+      : `*://*.${bareHost}/*`;
+  } catch {
+    return null;
+  }
+}
+
 const HEADER_TEMPLATES: Array<{
   labelKey: keyof Messages;
   name: string;
@@ -415,15 +432,24 @@ export default function App() {
     if (extApi?.tabs) {
       extApi.tabs
         .query({ active: true, currentWindow: true })
-        .then(([tab]) => {
-          if (tab?.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://'))) {
+        .then(async ([tab]) => {
+          let pat = urlToDomainPattern(
+            tab?.url || (tab as unknown as { pendingUrl?: string })?.pendingUrl
+          );
+          if (!pat) {
             try {
-              const u = new URL(tab.url);
-              const bareHost = u.hostname.replace(/^www\./i, '');
-              setActiveDomainPattern(`*://*.${bareHost}/*`);
+              const allHttpTabs = await extApi.tabs.query({
+                url: ['http://*/*', 'https://*/*'],
+                currentWindow: true,
+              });
+              const lastHttp = allHttpTabs[allHttpTabs.length - 1];
+              pat = urlToDomainPattern(lastHttp?.url);
             } catch {
               // ignore
             }
+          }
+          if (pat) {
+            setActiveDomainPattern(pat);
           }
         })
         .catch(() => {});
@@ -433,13 +459,16 @@ export default function App() {
       changes: Record<string, chrome.storage.StorageChange>,
       area: string
     ) => {
-      if (area === 'local' && changes.devManipulatorState?.newValue) {
-        const nextVal = changes.devManipulatorState.newValue as ExtensionState;
-        if (Array.isArray(nextVal.logs)) {
-          setState((prev) => ({
-            ...prev,
-            logs: nextVal.logs,
-          }));
+      if (area === 'local') {
+        if (changes.devManipulatorLogs?.newValue) {
+          const nextLogs = changes.devManipulatorLogs
+            .newValue as InterceptLogEntry[];
+          if (Array.isArray(nextLogs)) {
+            setState((prev) => ({
+              ...prev,
+              logs: nextLogs,
+            }));
+          }
         }
       }
     };
@@ -497,19 +526,88 @@ export default function App() {
   };
 
   // Scope all enabled header rules in profile to current tab domain
-  const scopeHeadersToCurrentDomain = () => {
-    if (activeDomainPattern === '*') {
+  const scopeHeadersToCurrentDomain = async () => {
+    let resolvedPattern = activeDomainPattern;
+    if (extApi?.tabs) {
+      try {
+        const [tab] = await extApi.tabs.query({
+          active: true,
+          currentWindow: true,
+        });
+        const fromTab = urlToDomainPattern(
+          tab?.url || (tab as unknown as { pendingUrl?: string })?.pendingUrl
+        );
+        if (fromTab) {
+          resolvedPattern = fromTab;
+          setActiveDomainPattern(fromTab);
+        } else {
+          const allHttpTabs = await extApi.tabs.query({
+            url: ['http://*/*', 'https://*/*'],
+            currentWindow: true,
+          });
+          const lastHttp = allHttpTabs[allHttpTabs.length - 1];
+          const fallbackPat = urlToDomainPattern(lastHttp?.url);
+          if (fallbackPat) {
+            resolvedPattern = fallbackPat;
+            setActiveDomainPattern(fallbackPat);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+    if (resolvedPattern === '*') {
+      const recentLogUrl = state.logs.find(
+        (l) => l.pageUrl?.startsWith('http') || l.url?.startsWith('http')
+      );
+      const fromLog = urlToDomainPattern(recentLogUrl?.pageUrl || recentLogUrl?.url);
+      if (fromLog) {
+        resolvedPattern = fromLog;
+        setActiveDomainPattern(fromLog);
+      }
+    }
+    if (resolvedPattern === '*') {
       showToast(t.toastOpenHttpTab);
       return;
     }
-    updateActiveProfile((prof) => ({
-      ...prof,
-      headerRules: prof.headerRules.map((r) => ({
-        ...r,
-        urlFilter: activeDomainPattern,
-      })),
-    }));
-    showToast(fill(t.toastScoped, { pattern: activeDomainPattern }));
+    updateActiveProfile((prof) => {
+      const existingHeaders = prof.headerRules || [];
+      const updatedHeaders =
+        existingHeaders.length > 0
+          ? existingHeaders.map((r) => ({
+              ...r,
+              urlFilter: resolvedPattern,
+            }))
+          : [
+              {
+                id: `h-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+                enabled: true,
+                name: 'X-Custom-Header',
+                value: 'true',
+                operation: 'set' as HeaderOperation,
+                target: 'request' as HeaderTarget,
+                urlFilter: resolvedPattern,
+              },
+            ];
+      return {
+        ...prof,
+        headerRules: updatedHeaders,
+        redirectCorsRules: (prof.redirectCorsRules || []).map((r) =>
+          !r.sourceUrlFilter || r.sourceUrlFilter === '*'
+            ? { ...r, sourceUrlFilter: resolvedPattern }
+            : r
+        ),
+        telepresence: {
+          ...prof.telepresence,
+          targetDomainFilter:
+            !prof.telepresence.targetDomainFilter ||
+            prof.telepresence.targetDomainFilter === '*'
+              ? resolvedPattern
+              : prof.telepresence.targetDomainFilter,
+        },
+      };
+    });
+    showToast(fill(t.toastScoped, { pattern: resolvedPattern }));
   };
 
   // Parse cURL command into Header & Body rules
@@ -699,11 +797,11 @@ export default function App() {
       sourceUrlFilter:
         customFilter ||
         (type === 'redirect'
-          ? '^https://api\\.example\\.com/(.*)'
+          ? 'https://api.example.com/*'
           : type === 'block'
           ? '/api/v1/analytics'
           : activeDomainPattern),
-      destinationUrl: type === 'redirect' ? 'http://localhost:8080/\\1' : '',
+      destinationUrl: type === 'redirect' ? 'http://localhost:8080/*' : '',
       queryKey: type === 'query_param' ? 'debug' : '',
       queryValue: type === 'query_param' ? '1' : '',
     };
@@ -824,6 +922,38 @@ export default function App() {
   };
 
   const handleExport = () => {
+    let profilesToExport = state.profiles;
+    let activeIdToExport = state.activeProfileId;
+    if (addingProfile && newProfileName.trim()) {
+      const pendingProf: Profile = {
+        id: `p-${Date.now()}`,
+        name: newProfileName.trim(),
+        color: '#3b82f6',
+        telepresence: {
+          enabled: false,
+          interceptId: '',
+          baggageHeader: '',
+          customHeaderName: '',
+          customHeaderValue: '',
+          targetDomainFilter: '*',
+          propagateBaggage: true,
+          envoyForceTrace: false,
+        },
+        headerRules: [],
+        bodyRules: [],
+        redirectCorsRules: [],
+        variables: [],
+      };
+      profilesToExport = [...state.profiles, pendingProf];
+      activeIdToExport = pendingProf.id;
+      updateState((prev) => ({
+        ...prev,
+        activeProfileId: pendingProf.id,
+        profiles: [...prev.profiles, pendingProf],
+      }));
+      setNewProfileName('');
+      setAddingProfile(false);
+    }
     const cleanExport = {
       schemaVersion: 2,
       exportedAt: new Date().toISOString(),
@@ -833,8 +963,8 @@ export default function App() {
       locale: state.locale,
       theme: state.theme,
       lastActiveTab: activeTab,
-      activeProfileId: state.activeProfileId,
-      profiles: state.profiles.map((p) => ({
+      activeProfileId: activeIdToExport,
+      profiles: profilesToExport.map((p) => ({
         ...p,
         headerRules: p.headerRules || [],
         bodyRules: p.bodyRules || [],
@@ -957,19 +1087,41 @@ export default function App() {
                 type="text"
                 value={newProfileName}
                 onChange={(e) => setNewProfileName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && createProfile()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') createProfile();
+                  else if (e.key === 'Escape') {
+                    setNewProfileName('');
+                    setAddingProfile(false);
+                  }
+                }}
+                onBlur={() => {
+                  if (newProfileName.trim()) {
+                    createProfile();
+                  } else {
+                    setAddingProfile(false);
+                  }
+                }}
                 placeholder={t.workspaceNamePlaceholder}
                 autoFocus
                 className="h-6 px-2 text-[11px] rounded bg-rf-input border border-rf-border-strong text-rf-1 focus:outline-none focus:border-blue-500 w-32"
               />
               <button
-                onClick={createProfile}
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  createProfile();
+                }}
                 className="h-6 px-2 text-[11px] rounded bg-blue-600 hover:bg-blue-500 text-white font-medium"
               >
                 {t.add}
               </button>
               <button
-                onClick={() => setAddingProfile(false)}
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setNewProfileName('');
+                  setAddingProfile(false);
+                }}
                 className="h-6 px-1.5 text-[11px] text-rf-5 hover:text-rf-3"
               >
                 ✕
@@ -1016,7 +1168,7 @@ export default function App() {
           )}
         </div>
 
-        {/* Right: Variables + cURL + Master Toggle — language/theme live under Settings */}
+        {/* Right: Variables + cURL + Settings + Master Toggle */}
         <div className="flex items-center gap-1.5 shrink-0">
           <button
             onClick={() => setShowVarsModal(true)}
@@ -1039,6 +1191,22 @@ export default function App() {
           >
             <Terminal className="w-3 h-3 text-blue-400" />
             <span>{t.importCurl}</span>
+          </button>
+
+          <button
+            onClick={() => {
+              const nextTab = activeTab === 'settings' ? 'headers' : 'settings';
+              setActiveTab(nextTab);
+              updateState((prev) => ({ ...prev, lastActiveTab: nextTab }));
+            }}
+            title={t.tabSettings}
+            className={`h-7 px-2 rounded-md flex items-center gap-1.5 text-[11px] font-medium border transition-colors ${
+              activeTab === 'settings'
+                ? 'bg-blue-600 border-blue-500 text-white'
+                : 'text-rf-3 hover:text-rf-1 bg-rf-input hover:bg-rf-hover border-rf-border'
+            }`}
+          >
+            <Settings className="w-3.5 h-3.5" />
           </button>
 
           <div className="h-4 w-[1px] bg-rf-border mx-0.5" />
@@ -1130,13 +1298,6 @@ export default function App() {
                 icon: Activity,
                 count: state.logs.length,
               },
-              {
-                id: 'settings' as const,
-                label: t.tabSettings,
-                icon: Settings,
-                count: 0,
-                iconOnly: true,
-              },
             ]
           ).map((tab) => {
             const Icon = tab.icon;
@@ -1161,7 +1322,7 @@ export default function App() {
                 }`}
               >
                 <Icon className="w-3.5 h-3.5 shrink-0" />
-                {!tab.iconOnly && <span>{tab.label}</span>}
+                <span>{tab.label}</span>
                 {tab.count > 0 && (
                   <span
                     className={`px-1.5 rounded text-[10px] font-mono-code leading-4 ${
@@ -1178,8 +1339,8 @@ export default function App() {
           })}
         </div>
 
-        {activeTab === 'headers' && (
-          <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5">
+          {activeTab !== 'logs' && activeTab !== 'settings' && (
             <button
               onClick={scopeHeadersToCurrentDomain}
               title={`${t.pinDomainTitle} (${activeDomainPattern})`}
@@ -1188,6 +1349,8 @@ export default function App() {
               <Crosshair className="w-3 h-3 text-emerald-400" />
               <span>{t.pinDomain}</span>
             </button>
+          )}
+          {activeTab === 'headers' && (
             <div className="relative flex items-center">
               <Search className="w-3 h-3 text-rf-5 absolute left-2 pointer-events-none" />
               <input
@@ -1198,8 +1361,8 @@ export default function App() {
                 className="h-6 pl-6 pr-2 w-32 rounded bg-rf-input border border-rf-border text-[11px] text-rf-2 placeholder-rf-5 focus:outline-none focus:border-rf-border-strong"
               />
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </nav>
 
       {/* Main Content Area */}
@@ -1455,9 +1618,94 @@ export default function App() {
                   );
                 }
                 return (
-                  <div className="flex flex-col h-full gap-3">
-                    <div className="grid grid-cols-12 gap-2.5">
-                      <div className="col-span-5">
+                  <div className="flex flex-col h-full gap-2.5">
+                    {/* 4 Visual Mode Cards: What do you want to do? */}
+                    <div>
+                      <div className="text-[10px] font-medium text-rf-4 mb-1">
+                        {resolvedLocale === 'tr'
+                          ? 'Ne yapmak istiyorsun? (İşlem Modu)'
+                          : 'What do you want to do? (Action Mode)'}
+                      </div>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {(
+                          [
+                            {
+                              id: 'merge_response_json' as const,
+                              badge: 'RES YAMALA',
+                              badgeEn: 'PATCH RES',
+                              titleTr: 'Dönen JSON’ı Yamala',
+                              titleEn: 'Patch Response JSON',
+                              descTr: 'Gerçek API yanıtını korur, sadece yazdığın alanları değiştirir.',
+                              descEn: 'Keeps real API response, overrides only specified keys.',
+                            },
+                            {
+                              id: 'replace_response' as const,
+                              badge: 'TAM MOCK',
+                              badgeEn: 'FULL MOCK',
+                              titleTr: 'Sahte Yanıt Döndür',
+                              titleEn: 'Mock Full Response',
+                              descTr: 'Sunucuya gitmez; yazdığın JSON ve Status kodunu döndürür.',
+                              descEn: 'Skips server; returns your custom JSON & HTTP status.',
+                            },
+                            {
+                              id: 'merge_request_json' as const,
+                              badge: 'REQ YAMALA',
+                              badgeEn: 'PATCH REQ',
+                              titleTr: 'Giden JSON’ı Yamala',
+                              titleEn: 'Patch Outgoing JSON',
+                              descTr: 'Sayfanın gönderdiği POST/PUT verisine yeni alan ekler/değiştirir.',
+                              descEn: 'Injects or overrides keys in outgoing request JSON.',
+                            },
+                            {
+                              id: 'replace_request' as const,
+                              badge: 'REQ DEĞİŞTİR',
+                              badgeEn: 'REPLACE REQ',
+                              titleTr: 'Giden Body Değiştir',
+                              titleEn: 'Replace Outgoing Body',
+                              descTr: 'Sayfanın gönderdiği tüm gövdeyi aşağıdakilerle değiştirir.',
+                              descEn: 'Replaces entire outgoing request payload.',
+                            },
+                          ]
+                        ).map((m) => {
+                          const active = selected.mode === m.id;
+                          return (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() =>
+                                updateBodyRule(selected.id, { mode: m.id })
+                              }
+                              className={`text-left p-2 rounded-md border transition-all ${
+                                active
+                                  ? 'bg-blue-600/15 border-blue-500 text-rf-1'
+                                  : 'bg-rf-raised hover:bg-rf-input border-rf-border text-rf-3'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span
+                                  className={`font-mono-code text-[8px] px-1 py-0.2 rounded font-semibold ${
+                                    active
+                                      ? 'bg-blue-600 text-white'
+                                      : 'bg-rf-hover text-rf-4'
+                                  }`}
+                                >
+                                  {resolvedLocale === 'tr' ? m.badge : m.badgeEn}
+                                </span>
+                              </div>
+                              <div className="text-[10px] font-semibold mt-1 truncate">
+                                {resolvedLocale === 'tr' ? m.titleTr : m.titleEn}
+                              </div>
+                              <div className="text-[9px] text-rf-4 mt-0.5 leading-tight line-clamp-2">
+                                {resolvedLocale === 'tr' ? m.descTr : m.descEn}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-12 gap-2">
+                      <div className="col-span-3">
                         <label className="block text-[10px] font-medium text-rf-4 mb-1">
                           {t.ruleName}
                         </label>
@@ -1468,40 +1716,10 @@ export default function App() {
                             updateBodyRule(selected.id, { name: e.target.value })
                           }
                           placeholder={t.ruleNamePlaceholder}
-                          className="w-full h-7 px-2.5 rounded bg-rf-input border border-rf-border text-xs text-rf-1 focus:outline-none focus:border-blue-500"
+                          className="w-full h-7 px-2 rounded bg-rf-input border border-rf-border text-[11px] text-rf-1 focus:outline-none focus:border-blue-500"
                         />
                       </div>
 
-                      <div className="col-span-7">
-                        <label className="block text-[10px] font-medium text-rf-4 mb-1">
-                          {t.mutationStrategy}
-                        </label>
-                        <select
-                          value={selected.mode}
-                          onChange={(e) =>
-                            updateBodyRule(selected.id, {
-                              mode: e.target.value as BodyRuleMode,
-                            })
-                          }
-                          className="w-full h-7 px-2 rounded bg-rf-input border border-rf-border text-xs text-blue-300 font-medium focus:outline-none focus:border-blue-500"
-                        >
-                          <option value="merge_response_json">
-                            {t.modeMergeResponse}
-                          </option>
-                          <option value="replace_response">
-                            {t.modeReplaceResponse}
-                          </option>
-                          <option value="merge_request_json">
-                            {t.modeMergeRequest}
-                          </option>
-                          <option value="replace_request">
-                            {t.modeReplaceRequest}
-                          </option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-12 gap-2">
                       <div className="col-span-2">
                         <label className="block text-[10px] font-medium text-rf-4 mb-1">
                           {t.method}
@@ -1557,48 +1775,30 @@ export default function App() {
                           className="w-full h-7 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-cyan-300 focus:outline-none focus:border-blue-500"
                         />
                       </div>
-
-                      <div className="col-span-1">
-                        <label className="block text-[10px] font-medium text-rf-4 mb-1">
-                          Status
-                        </label>
-                        <input
-                          type="number"
-                          value={selected.statusCode || 200}
-                          onChange={(e) =>
-                            updateBodyRule(selected.id, {
-                              statusCode: Number(e.target.value) || 200,
-                            })
-                          }
-                          className="w-full h-7 px-1 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-emerald-300 text-center"
-                        />
-                      </div>
-
-                      <div className="col-span-2">
-                        <label className="block text-[10px] font-medium text-rf-4 mb-1">
-                          {t.delayMs}
-                        </label>
-                        <input
-                          type="number"
-                          value={selected.delayMs || 0}
-                          onChange={(e) =>
-                            updateBodyRule(selected.id, {
-                              delayMs: Math.max(0, Number(e.target.value) || 0),
-                            })
-                          }
-                          className="w-full h-7 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-amber-300"
-                        />
-                      </div>
                     </div>
 
-                    <div className="flex-1 flex flex-col">
+                    <div className="flex-1 flex flex-col min-h-0">
                       <div className="flex items-center justify-between mb-1">
                         <div className="flex items-center gap-1 flex-wrap">
-                          <span className="text-[10px] font-medium text-rf-4 mr-1">
-                            {t.jsonPayload}
+                          <span className="text-[10px] font-semibold text-rf-2 mr-1">
+                            {selected.mode === 'merge_response_json'
+                              ? resolvedLocale === 'tr'
+                                ? 'Yamalanacak Yanıt JSON Anahtarları:'
+                                : 'Response JSON Keys to Patch:'
+                              : selected.mode === 'replace_response'
+                              ? resolvedLocale === 'tr'
+                                ? 'Döndürülecek Sahte (Mock) Yanıt:'
+                                : 'Full Mock Response Body:'
+                              : selected.mode === 'merge_request_json'
+                              ? resolvedLocale === 'tr'
+                                ? 'Giden İsteğe Eklenecek/Değişecek JSON:'
+                                : 'Outgoing Request JSON Keys to Patch:'
+                              : resolvedLocale === 'tr'
+                              ? 'Yeni Giden İstek Gövdesi (Body):'
+                              : 'New Outgoing Request Body:'}
                           </span>
                           <span className="text-[9px] text-rf-5">{t.macrosHint}</span>
-                          {availableVariables.slice(0, 6).map((v) => {
+                          {availableVariables.slice(0, 4).map((v) => {
                             const tag = `{{${v.key}}}`;
                             return (
                               <button
@@ -1616,25 +1816,56 @@ export default function App() {
                             );
                           })}
                         </div>
-                        <button
-                          onClick={() => {
-                            try {
-                              updateBodyRule(selected.id, {
-                                bodyContent: JSON.stringify(
-                                  JSON.parse(selected.bodyContent),
-                                  null,
-                                  2
-                                ),
-                              });
-                              showToast(t.toastFormattedJson);
-                            } catch {
-                              showToast(t.toastInvalidJsonSyntax);
-                            }
-                          }}
-                          className="text-[11px] text-blue-400 hover:text-blue-300"
-                        >
-                          {t.formatJson}
-                        </button>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {(selected.mode === 'replace_response' ||
+                            selected.mode === 'merge_response_json') && (
+                            <div className="flex items-center gap-1 text-[10px]">
+                              <span className="text-rf-4">Status:</span>
+                              <input
+                                type="number"
+                                value={selected.statusCode || 200}
+                                onChange={(e) =>
+                                  updateBodyRule(selected.id, {
+                                    statusCode: Number(e.target.value) || 200,
+                                  })
+                                }
+                                className="w-12 h-5 px-1 rounded bg-rf-input border border-rf-border font-mono-code text-[10px] text-emerald-300 text-center"
+                              />
+                            </div>
+                          )}
+                          <div className="flex items-center gap-1 text-[10px]">
+                            <span className="text-rf-4">Delay(ms):</span>
+                            <input
+                              type="number"
+                              value={selected.delayMs || 0}
+                              onChange={(e) =>
+                                updateBodyRule(selected.id, {
+                                  delayMs: Math.max(0, Number(e.target.value) || 0),
+                                })
+                              }
+                              className="w-14 h-5 px-1 rounded bg-rf-input border border-rf-border font-mono-code text-[10px] text-amber-300 text-center"
+                            />
+                          </div>
+                          <button
+                            onClick={() => {
+                              try {
+                                updateBodyRule(selected.id, {
+                                  bodyContent: JSON.stringify(
+                                    JSON.parse(selected.bodyContent),
+                                    null,
+                                    2
+                                  ),
+                                });
+                                showToast(t.toastFormattedJson);
+                              } catch {
+                                showToast(t.toastInvalidJsonSyntax);
+                              }
+                            }}
+                            className="text-[11px] text-blue-400 hover:text-blue-300 font-medium"
+                          >
+                            {t.formatJson}
+                          </button>
+                        </div>
                       </div>
                       <VarTextarea
                         value={selected.bodyContent}
@@ -1695,6 +1926,42 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Quick explanation of what the 4 routing rule types do */}
+              <div className="grid grid-cols-4 gap-2 px-3.5 py-2 bg-rf-sunken/70 border-b border-rf-border/70 text-[10px]">
+                <div className="rounded bg-rf-input/60 border border-rf-border px-2 py-1.5">
+                  <div className="font-mono-code font-semibold text-emerald-300">CORS</div>
+                  <div className="text-rf-4 mt-0.5 leading-snug">
+                    {resolvedLocale === 'tr'
+                      ? 'Farklı port/domain CORS hatasını çözer.'
+                      : 'Fixes cross-origin (CORS) errors.'}
+                  </div>
+                </div>
+                <div className="rounded bg-rf-input/60 border border-rf-border px-2 py-1.5">
+                  <div className="font-mono-code font-semibold text-amber-300">QUERY</div>
+                  <div className="text-rf-4 mt-0.5 leading-snug">
+                    {resolvedLocale === 'tr'
+                      ? 'URL sonuna otomatik ?key=val ekler.'
+                      : 'Appends ?key=val to matching URLs.'}
+                  </div>
+                </div>
+                <div className="rounded bg-rf-input/60 border border-rf-border px-2 py-1.5">
+                  <div className="font-mono-code font-semibold text-rose-300">BLOCK</div>
+                  <div className="text-rf-4 mt-0.5 leading-snug">
+                    {resolvedLocale === 'tr'
+                      ? 'İsteği tamamen engeller / iptal eder.'
+                      : 'Blocks matching requests completely.'}
+                  </div>
+                </div>
+                <div className="rounded bg-rf-input/60 border border-rf-border px-2 py-1.5">
+                  <div className="font-mono-code font-semibold text-blue-300">307 REDIRECT</div>
+                  <div className="text-rf-4 mt-0.5 leading-snug">
+                    {resolvedLocale === 'tr'
+                      ? 'Canlı API’yi localhost’a yönlendirir (* destekli).'
+                      : 'Routes live API URLs to localhost (* supported).'}
+                  </div>
+                </div>
+              </div>
+
               <div className="divide-y divide-rf-border/60">
                 {activeProfile.redirectCorsRules.length === 0 ? (
                   <div className="py-8 text-center text-rf-5 text-xs">
@@ -1704,11 +1971,11 @@ export default function App() {
                   activeProfile.redirectCorsRules.map((rule) => (
                     <div
                       key={rule.id}
-                      className={`grid grid-cols-12 gap-2 px-3.5 py-2.5 items-center ${
+                      className={`grid grid-cols-12 gap-2 px-3.5 py-2.5 items-end ${
                         !rule.enabled ? 'opacity-50' : ''
                       }`}
                     >
-                      <div className="col-span-2 flex items-center gap-2">
+                      <div className="col-span-2 flex items-center gap-2 pb-1">
                         <Switch
                           checked={rule.enabled}
                           onChange={(val) =>
@@ -1743,6 +2010,19 @@ export default function App() {
                             : 'col-span-4'
                         }
                       >
+                        <label className="block text-[9px] text-rf-5 mb-0.5">
+                          {rule.type === 'block'
+                            ? resolvedLocale === 'tr'
+                              ? 'Engellenecek URL Filtresi'
+                              : 'URL Pattern to Block'
+                            : rule.type === 'cors_bypass'
+                            ? resolvedLocale === 'tr'
+                              ? 'CORS Açılacak URL Filtresi'
+                              : 'Target URL Pattern for CORS'
+                            : resolvedLocale === 'tr'
+                            ? 'Kaynak URL (Yakalanacak)'
+                            : 'Source URL Pattern'}
+                        </label>
                         <input
                           type="text"
                           value={rule.sourceUrlFilter}
@@ -1758,6 +2038,11 @@ export default function App() {
 
                       {rule.type === 'redirect' && (
                         <div className="col-span-5">
+                          <label className="block text-[9px] text-rf-5 mb-0.5">
+                            {resolvedLocale === 'tr'
+                              ? 'Yeni Hedef URL (Yönlendirilecek)'
+                              : 'Destination URL (Redirect To)'}
+                          </label>
                           <VarInput
                             value={rule.destinationUrl || ''}
                             variables={availableVariables}
@@ -1766,7 +2051,7 @@ export default function App() {
                                 destinationUrl: val,
                               })
                             }
-                            placeholder="http://localhost:8080/\1"
+                            placeholder="http://localhost:8080/*"
                             className="w-full h-6 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-emerald-300"
                           />
                         </div>
@@ -1774,32 +2059,42 @@ export default function App() {
 
                       {rule.type === 'query_param' && (
                         <div className="col-span-5 grid grid-cols-2 gap-1.5">
-                          <input
-                            type="text"
-                            value={rule.queryKey || ''}
-                            onChange={(e) =>
-                              updateRedirectCorsRule(rule.id, {
-                                queryKey: e.target.value,
-                              })
-                            }
-                            placeholder="param_key"
-                            className="w-full h-6 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-amber-300"
-                          />
-                          <VarInput
-                            value={rule.queryValue || ''}
-                            variables={availableVariables}
-                            onChange={(val) =>
-                              updateRedirectCorsRule(rule.id, {
-                                queryValue: val,
-                              })
-                            }
-                            placeholder="value"
-                            className="w-full h-6 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-emerald-300"
-                          />
+                          <div>
+                            <label className="block text-[9px] text-rf-5 mb-0.5">
+                              {resolvedLocale === 'tr' ? 'Parametre Adı' : 'Query Key'}
+                            </label>
+                            <input
+                              type="text"
+                              value={rule.queryKey || ''}
+                              onChange={(e) =>
+                                updateRedirectCorsRule(rule.id, {
+                                  queryKey: e.target.value,
+                                })
+                              }
+                              placeholder="debug"
+                              className="w-full h-6 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-amber-300"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[9px] text-rf-5 mb-0.5">
+                              {resolvedLocale === 'tr' ? 'Parametre Değeri' : 'Query Value'}
+                            </label>
+                            <VarInput
+                              value={rule.queryValue || ''}
+                              variables={availableVariables}
+                              onChange={(val) =>
+                                updateRedirectCorsRule(rule.id, {
+                                  queryValue: val,
+                                })
+                              }
+                              placeholder="1"
+                              className="w-full h-6 px-2 rounded bg-rf-input border border-rf-border font-mono-code text-[11px] text-emerald-300"
+                            />
+                          </div>
                         </div>
                       )}
 
-                      <div className="col-span-1 flex justify-end">
+                      <div className="col-span-1 flex justify-end pb-0.5">
                         <button
                           onClick={() => deleteRedirectCorsRule(rule.id)}
                           className="text-rf-5 hover:text-red-400 p-1"

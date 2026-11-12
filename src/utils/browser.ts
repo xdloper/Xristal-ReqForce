@@ -140,11 +140,21 @@ export const INITIAL_STATE: ExtensionState = {
 export async function loadExtensionState(): Promise<ExtensionState> {
   try {
     if (!extApi?.storage?.local) return INITIAL_STATE;
-    const data = await extApi.storage.local.get('devManipulatorState');
+    const data = await extApi.storage.local.get([
+      'devManipulatorState',
+      'devManipulatorLogs',
+    ]);
     if (data && data.devManipulatorState) {
+      const legacyLogs = Array.isArray(data.devManipulatorState.logs)
+        ? data.devManipulatorState.logs
+        : [];
+      const separateLogs = Array.isArray(data.devManipulatorLogs)
+        ? data.devManipulatorLogs
+        : legacyLogs;
       const loaded = {
         ...INITIAL_STATE,
         ...data.devManipulatorState,
+        logs: separateLogs,
         trafficMonitorEnabled:
           data.devManipulatorState.trafficMonitorEnabled ?? true,
         locale: data.devManipulatorState.locale ?? 'system',
@@ -188,14 +198,17 @@ export async function loadExtensionState(): Promise<ExtensionState> {
 
       const next = { ...loaded, profiles };
       if (mutated) {
-        await extApi.storage.local.set({ devManipulatorState: next });
-        extApi.runtime?.sendMessage({ type: 'SYNC_STATE', state: next }, () => {
-          void extApi.runtime?.lastError;
+        const { logs: _omit, ...configOnly } = next;
+        await extApi.storage.local.set({
+          devManipulatorState: { ...configOnly, logs: [] },
         });
       }
       return next;
     }
-    await extApi.storage.local.set({ devManipulatorState: INITIAL_STATE });
+    await extApi.storage.local.set({
+      devManipulatorState: INITIAL_STATE,
+      devManipulatorLogs: [],
+    });
     return INITIAL_STATE;
   } catch {
     return INITIAL_STATE;
@@ -208,25 +221,28 @@ export async function saveExtensionState(
 ): Promise<void> {
   try {
     if (!extApi?.storage?.local) return;
-    // Always persist immediately to chrome.storage.local so closing the popup never loses state
-    const existing = await extApi.storage.local.get('devManipulatorState');
-    const prevLogs = existing?.devManipulatorState?.logs;
-    const keepExistingLogs =
-      !options?.replaceLogs &&
-      Array.isArray(prevLogs) &&
-      prevLogs.length > 0 &&
-      (!state.logs || state.logs.length < prevLogs.length);
-    const mergedState: ExtensionState = {
-      ...state,
-      logs: keepExistingLogs ? prevLogs : state.logs || [],
+    // Write config immediately WITHOUT waiting for a prior storage.get roundtrip
+    const { logs, ...configOnly } = state;
+    const toStoreConfig: ExtensionState = {
+      ...configOnly,
+      logs: [],
     };
-    await extApi.storage.local.set({ devManipulatorState: mergedState });
+    if (options?.replaceLogs) {
+      await extApi.storage.local.set({
+        devManipulatorState: toStoreConfig,
+        devManipulatorLogs: logs || [],
+      });
+    } else {
+      await extApi.storage.local.set({
+        devManipulatorState: toStoreConfig,
+      });
+    }
 
     if (extApi.runtime?.sendMessage) {
       extApi.runtime.sendMessage(
         {
           type: 'SYNC_STATE',
-          state: mergedState,
+          state: toStoreConfig,
           replaceLogs: Boolean(options?.replaceLogs),
         },
         () => {

@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-11-12
+
+### Added
+- **Redesigned Visual Body & Routing Editors**:
+  - Replaced the Body rule strategy dropdown with **4 visual action mode cards** (`Patch Response JSON`, `Mock Full Response`, `Patch Outgoing JSON`, `Replace Outgoing Body`) with dynamic editor labels and context-aware `Status` / `Delay` inputs.
+  - Added explanatory guide cards and explicit field labels (`Source URL Pattern`, `Destination URL`, `Query Key / Value`) to the **Routing** tab, plus simple wildcard (`*`) redirect support (`https://api.prod.com/*` → `http://localhost:8080/*`).
+- **Top-Bar Settings Button**: Moved the ⚙️ **Settings** button into the top header bar next to `Variables` and `Import cURL`.
+
+### Fixed
+- **Zero-Race Storage Architecture (`devManipulatorState` + `devManipulatorLogs`)**: Separated live traffic logs into `devManipulatorLogs` so background log appends never overwrite user workspaces, variables, or rules in `devManipulatorState`.
+- **Auto-Commit Workspace Input & Export**: Uncommitted workspace names are automatically saved on blur or when `Export JSON` is clicked.
+- **Smart `Pin Domain` Resolution**: `Pin Domain` dynamically resolves the active HTTP/HTTPS tab (or falls back to the last open HTTP tab / recent log), handles `localhost` and subdomains properly, and works across `Headers`, `Body`, and `Routing`.
+- **Light Theme High-Contrast Palette**: Mapped all accent utility classes (`emerald`, `amber`, `blue`, `purple`, `rose`, `cyan`) to high-contrast dark shades when `html[data-theme='light']` is active.
+
 ## [1.8.7] - 2026-11-12
 
 ### Added
